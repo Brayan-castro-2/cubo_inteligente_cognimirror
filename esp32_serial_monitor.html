@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Serial Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #e8e8e8;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .status-indicator {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #ff4757;
+            box-shadow: 0 0 10px #ff4757;
+            transition: all 0.3s ease;
+        }
+        
+        .status-indicator.connected {
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        
+        .btn-connect {
+            background: linear-gradient(135deg, #00d9ff, #00ff88);
+            color: #1a1a2e;
+        }
+        
+        .btn-connect:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 217, 255, 0.4);
+        }
+        
+        .btn-disconnect {
+            background: linear-gradient(135deg, #ff4757, #ff6b81);
+            color: white;
+        }
+        
+        .btn-disconnect:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 71, 87, 0.4);
+        }
+        
+        .btn-clear {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e8e8e8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-clear:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        select {
+            padding: 12px 20px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e8e8e8;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        select option {
+            background: #1a1a2e;
+            color: #e8e8e8;
+        }
+        
+        .terminal {
+            background: #0d0d0d;
+            border-radius: 15px;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+        
+        .terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .terminal::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        
+        .terminal::-webkit-scrollbar-thumb {
+            background: rgba(0, 217, 255, 0.5);
+            border-radius: 4px;
+        }
+        
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        
+        .log-entry:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .timestamp {
+            color: #666;
+            margin-right: 10px;
+        }
+        
+        .data {
+            color: #00ff88;
+        }
+        
+        .error {
+            color: #ff4757;
+        }
+        
+        .info {
+            color: #00d9ff;
+        }
+        
+        .send-section {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 20px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e8e8e8;
+            font-size: 1rem;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #00d9ff;
+            box-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+        }
+        
+        .btn-send {
+            background: linear-gradient(135deg, #a55eea, #8854d0);
+            color: white;
+        }
+        
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(165, 94, 234, 0.4);
+        }
+        
+        .info-box {
+            background: rgba(0, 217, 255, 0.1);
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .info-box h3 {
+            color: #00d9ff;
+            margin-bottom: 10px;
+        }
+        
+        .info-box ul {
+            margin-left: 20px;
+        }
+        
+        .info-box li {
+            margin: 5px 0;
+        }
+        
+        .info-box a {
+            color: #00ff88;
+            text-decoration: none;
+        }
+        
+        .info-box a:hover {
+            text-decoration: underline;
+        }
+        
+        .not-supported {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            display: none;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 30px;
+            margin-top: 15px;
+        }
+        
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        
+        .stat-label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 ESP32 Serial Monitor</h1>
+        
+        <div class="not-supported" id="notSupported">
+            <h3>⚠️ Web Serial API no soportada</h3>
+            <p>Tu navegador no soporta la Web Serial API.</p>
+            <p>Por favor usa <strong>Google Chrome</strong> o <strong>Microsoft Edge</strong>.</p>
+        </div>
+        
+        <div id="mainContent">
+            <div class="info-box">
+                <h3>📋 Antes de conectar:</h3>
+                <ul>
+                    <li>Asegúrate de tener instalado el <a href="https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers" target="_blank">Driver CP210x de Silicon Labs</a></li>
+                    <li>Tu ESP32 debe aparecer como un puerto COM en el Administrador de Dispositivos</li>
+                    <li>Usa Google Chrome o Microsoft Edge para esta aplicación</li>
+                </ul>
+            </div>
+            
+            <div class="status-card">
+                <div class="connection-status">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span id="statusText">Desconectado</span>
+                </div>
+                
+                <div class="controls">
+                    <button class="btn-connect" id="btnConnect" onclick="connect()">
+                        🔌 Conectar ESP32
+                    </button>
+                    <button class="btn-disconnect btn-disabled" id="btnDisconnect" onclick="disconnect()" disabled>
+                        ❌ Desconectar
+                    </button>
+                    <select id="baudRate">
+                        <option value="9600">9600 baud</option>
+                        <option value="19200">19200 baud</option>
+                        <option value="38400">38400 baud</option>
+                        <option value="57600">57600 baud</option>
+                        <option value="115200" selected>115200 baud</option>
+                        <option value="230400">230400 baud</option>
+                        <option value="460800">460800 baud</option>
+                        <option value="921600">921600 baud</option>
+                    </select>
+                    <button class="btn-clear" onclick="clearTerminal()">
+                        🗑️ Limpiar
+                    </button>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-value" id="rxBytes">0</span>
+                        <span class="stat-label">Bytes recibidos</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="txBytes">0</span>
+                        <span class="stat-label">Bytes enviados</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="msgCount">0</span>
+                        <span class="stat-label">Mensajes</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="terminal" id="terminal">
+                <div class="log-entry info">
+                    <span class="timestamp">[Sistema]</span>
+                    <span>Esperando conexión...</span>
+                </div>
+            </div>
+            
+            <div class="send-section">
+                <input type="text" id="sendInput" placeholder="Escribe un comando para enviar a la ESP32..." onkeypress="handleKeyPress(event)">
+                <button class="btn-send" id="btnSend" onclick="sendData()" disabled>
+                    📤 Enviar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let port = null;
+        let reader = null;
+        let writer = null;
+        let rxBytesCount = 0;
+        let txBytesCount = 0;
+        let msgCount = 0;
+        
+        // Check if Web Serial API is supported
+        if (!('serial' in navigator)) {
+            document.getElementById('notSupported').style.display = 'block';
+            document.getElementById('mainContent').style.opacity = '0.3';
+            document.getElementById('mainContent').style.pointerEvents = 'none';
+        }
+        
+        function log(message, type = 'data') {
+            const terminal = document.getElementById('terminal');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            const timestamp = new Date().toLocaleTimeString('es-CL');
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span><span class="${type}">${escapeHtml(message)}</span>`;
+            
+            terminal.appendChild(entry);
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            msgCount++;
+            document.getElementById('msgCount').textContent = msgCount;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function clearTerminal() {
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML = '<div class="log-entry info"><span class="timestamp">[Sistema]</span><span>Terminal limpiado</span></div>';
+        }
+        
+        async function connect() {
+            try {
+                // Request port access
+                port = await navigator.serial.requestPort();
+                
+                // Get baud rate
+                const baudRate = parseInt(document.getElementById('baudRate').value);
+                
+                // Open the port
+                await port.open({ baudRate: baudRate });
+                
+                log(`Conectado a ${baudRate} baud`, 'info');
+                
+                // Update UI
+                document.getElementById('statusIndicator').classList.add('connected');
+                document.getElementById('statusText').textContent = 'Conectado';
+                document.getElementById('btnConnect').disabled = true;
+                document.getElementById('btnConnect').classList.add('btn-disabled');
+                document.getElementById('btnDisconnect').disabled = false;
+                document.getElementById('btnDisconnect').classList.remove('btn-disabled');
+                document.getElementById('btnSend').disabled = false;
+                document.getElementById('baudRate').disabled = true;
+                
+                // Setup writer
+                const textEncoder = new TextEncoderStream();
+                const writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+                writer = textEncoder.writable.getWriter();
+                
+                // Start reading
+                readLoop();
+                
+            } catch (error) {
+                log(`Error de conexión: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+        
+        async function readLoop() {
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
+            
+            let buffer = '';
+            
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    if (value) {
+                        buffer += value;
+                        rxBytesCount += value.length;
+                        document.getElementById('rxBytes').textContent = rxBytesCount;
+                        
+                        // Process complete lines
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop(); // Keep incomplete line in buffer
+                        
+                        for (const line of lines) {
+                            if (line.trim()) {
+                                log(line.trim());
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`Error de lectura: ${error.message}`, 'error');
+            } finally {
+                reader.releaseLock();
+            }
+        }
+        
+        async function disconnect() {
+            try {
+                if (reader) {
+                    await reader.cancel();
+                    reader = null;
+                }
+                if (writer) {
+                    await writer.close();
+                    writer = null;
+                }
+                if (port) {
+                    await port.close();
+                    port = null;
+                }
+                
+                log('Desconectado', 'info');
+                
+                // Update UI
+                document.getElementById('statusIndicator').classList.remove('connected');
+                document.getElementById('statusText').textContent = 'Desconectado';
+                document.getElementById('btnConnect').disabled = false;
+                document.getElementById('btnConnect').classList.remove('btn-disabled');
+                document.getElementById('btnDisconnect').disabled = true;
+                document.getElementById('btnDisconnect').classList.add('btn-disabled');
+                document.getElementById('btnSend').disabled = true;
+                document.getElementById('baudRate').disabled = false;
+                
+            } catch (error) {
+                log(`Error al desconectar: ${error.message}`, 'error');
+            }
+        }
+        
+        async function sendData() {
+            const input = document.getElementById('sendInput');
+            const message = input.value.trim();
+            
+            if (!message || !writer) return;
+            
+            try {
+                await writer.write(message + '\n');
+                txBytesCount += message.length + 1;
+                document.getElementById('txBytes').textContent = txBytesCount;
+                log(`→ ${message}`, 'info');
+                input.value = '';
+            } catch (error) {
+                log(`Error al enviar: ${error.message}`, 'error');
+            }
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendData();
+            }
+        }
+    </script>
+</body>
+</html>
