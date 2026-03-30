@@ -108,6 +108,7 @@
         #canvas-container {
             width: 100%;
             height: 100%;
+            touch-action: none; /* Permite rotar la cámara sin scrollear la web */
         }
 
         /* Overlay info on cube */
@@ -162,6 +163,27 @@
             flex-direction: column;
             overflow: hidden;
         }
+
+        /* Mobile toggle btn */
+        .mobile-stats-btn {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 12px 20px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            font-family: inherit;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 100;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .mobile-stats-btn:active { transform: scale(0.95); }
 
         .stats-tabs {
             display: flex;
@@ -446,9 +468,9 @@
         /* === RESPONSIVE (MOBILE) === */
         @media (max-width: 768px) {
             body { 
-                overflow-y: auto; /* Permitir scroll en móviles */
-                height: 100%;
+                overflow: hidden; /* Encajar perfecto, sin scroll general */
             }
+            .mobile-stats-btn { display: block; }
             header {
                 flex-wrap: wrap;
                 justify-content: center;
@@ -466,22 +488,34 @@
             }
             .main {
                 flex-direction: column;
-                overflow: visible;
+                overflow: hidden;
             }
             .cube-panel {
-                min-height: 400px;
-                flex: none;
+                flex: 1;
+                min-height: 0;
             }
             .stats-panel {
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
                 width: 100%;
-                border-left: none;
+                height: 70vh;
+                z-index: 90;
+                background: rgba(19, 22, 30, 0.95);
+                backdrop-filter: blur(15px);
+                transform: translateY(110%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 border-top: 1px solid var(--border);
-                flex: 1;
-                /* Eliminamos el limite de altura para que crezca naturales en móvil u ocupen lo que deban */
-                overflow: visible; 
+                border-left: none;
+                border-top-left-radius: 20px;
+                border-top-right-radius: 20px;
+                padding-bottom: 20px; /* Safe area */
+                box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+            }
+            .stats-panel.open-drawer {
+                transform: translateY(0);
             }
             .tab-content {
-                overflow: visible; /* Dejamos que el padre decida el scroll */
+                overflow-y: auto; /* Permitir scroll dentro del drawer */
             }
             #scramble-guide {
                 position: relative;
@@ -518,6 +552,7 @@
 </header>
 
 <div class="main">
+    <button class="mobile-stats-btn" onclick="toggleMobileStats()">📊 Ver Métricas</button>
     <!-- CUBE VIEW -->
     <div class="cube-panel">
         <div id="canvas-container"></div>
@@ -566,7 +601,7 @@
             <div class="stat-card">
                 <h3>⏱ Temporizador</h3>
                 <div class="big-timer" id="big-timer">00:00.000</div>
-                <div class="timer-label" id="timer-label">Esperando primer movimiento...</div>
+                <div class="timer-label" id="timer-label">Práctica libre (Sin grabar)</div>
                 <div class="stat-row">
                     <span class="label">Rotaciones</span>
                     <span class="value accent" id="st-moves">0</span>
@@ -717,7 +752,7 @@
         </div>
 
         <div class="bottom-bar">
-            <button class="btn-start" id="btn-start" onclick="toggleTimer()">▶ Iniciar</button>
+            <button class="btn-start" id="btn-start" onclick="toggleEvalMode()">▶ Preparar Evaluación</button>
             <button onclick="resetStats()">🔄 Reset</button>
         </div>
     </div>
@@ -878,20 +913,55 @@ let inBurst = false;              // Si estamos dentro de una ráfaga
 let inhibitoryErrors = 0;         // Giro+inverso < 400ms
 let workingMemErrors = 0;         // Giro+inverso 400ms-2000ms
 
-function toggleTimer() {
+let appMode = 'FREE'; // FREE, READY, SOLVING
+
+function toggleMobileStats() {
+    const p = document.querySelector('.stats-panel');
+    const isOp = p.classList.toggle('open-drawer');
+    const btn = document.querySelector('.mobile-stats-btn');
+    if (btn) btn.textContent = isOp ? '▼ Ocultar' : '📊 Ver Métricas';
+}
+
+function toggleEvalMode() {
     const btn = document.getElementById('btn-start');
-    if (!timerRunning) {
-        timerStart = Date.now() - timerElapsed;
-        timerInterval = setInterval(updateTimer, 50);
-        timerRunning = true;
-        btn.textContent = '⏸ Pausar';
-        document.getElementById('timer-label').textContent = 'En curso...';
-    } else {
+    if (appMode === 'FREE') {
+        appMode = 'READY';
+        resetStats(true); // reset pero mantener listos
+        btn.textContent = '✋ Esperando (Gira ahora)';
+        btn.style.background = '#fbbf24';
+        btn.style.borderColor = '#fbbf24';
+        btn.style.color = '#000';
+        document.getElementById('timer-label').textContent = 'Listo. Mueve el cubo físico.';
+        document.getElementById('move-log').innerHTML = '<span style="color:var(--yellow);font-style:italic;">Evaluación lista para iniciar...</span>';
+        
+        // Hide mobile stats to let user see cube clearly
+        document.querySelector('.stats-panel').classList.remove('open-drawer');
+        const mBtn = document.querySelector('.mobile-stats-btn');
+        if (mBtn) mBtn.textContent = '📊 Ver Métricas';
+    } else if (appMode === 'READY' || appMode === 'SOLVING') {
+        appMode = 'FREE';
         clearInterval(timerInterval);
         timerRunning = false;
-        btn.textContent = '▶ Reanudar';
-        document.getElementById('timer-label').textContent = 'Pausado';
+        btn.textContent = '▶ Preparar Evaluación';
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.style.color = '';
+        document.getElementById('timer-label').textContent = 'Práctica libre (Sin grabar)';
     }
+}
+
+function startSolving() {
+    appMode = 'SOLVING';
+    timerStart = Date.now() - timerElapsed;
+    timerInterval = setInterval(updateTimer, 50);
+    timerRunning = true;
+    
+    const btn = document.getElementById('btn-start');
+    btn.textContent = '⏹ Detener Evaluación';
+    btn.style.background = '#ef4444';
+    btn.style.borderColor = '#ef4444';
+    btn.style.color = 'white';
+    document.getElementById('timer-label').textContent = 'Evaluando...';
 }
 
 function updateTimer() {
@@ -925,11 +995,6 @@ function formatTime(ms) {
 
 function recordMove(notation) {
     moveHistory.push({ move: notation, t: Date.now() });
-
-    // Timer auto-start on first move
-    if (!timerRunning && moveHistory.length === 1) {
-        toggleTimer();
-    }
 
     // Count face
     const key = notation.length > 1 && notation[1] === "'" ? notation.substring(0,2) : notation.charAt(0);
@@ -1080,9 +1145,16 @@ function resetStats() {
     document.getElementById('st-max-tps').textContent = '0.00';
     document.getElementById('st-idle').textContent = '00:00.000';
     document.getElementById('st-idle-pct').textContent = '0%';
-    document.getElementById('btn-start').textContent = '▶ Iniciar';
-    document.getElementById('timer-label').textContent = 'Esperando primer movimiento...';
-    document.getElementById('move-log').innerHTML = '<span style="color:var(--muted);font-style:italic;">Esperando inicio...</span>';
+    if (keepReady !== true) {
+        appMode = 'FREE';
+        const btn = document.getElementById('btn-start');
+        btn.textContent = '▶ Preparar Evaluación';
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.style.color = '';
+        document.getElementById('timer-label').textContent = 'Práctica libre (Sin grabar)';
+        document.getElementById('move-log').innerHTML = '<span style="color:var(--muted);font-style:italic;">Esperando inicio...</span>';
+    }
     document.getElementById('top-face').textContent = '—';
     document.getElementById('top-freq').textContent = '0';
     document.getElementById('top-move').textContent = '—';
@@ -1436,7 +1508,16 @@ window.handleMove = function(notation) {
         }
     }
     if (!MOVES_CONFIG[notation.charAt(0)]) return;
-    recordMove(notation);
+
+    if (appMode === 'READY') {
+        startSolving();
+    }
+
+    if (appMode === 'SOLVING') {
+        recordMove(notation);
+    }
+
+    // El 3D visual se actualiza en CUALQUIER MODO (FREE, READY, SOLVING)
     moveQueue.push(notation);
     processQueue();
 }
