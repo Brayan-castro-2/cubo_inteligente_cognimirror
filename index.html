@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CogniMirror Cube – Smart Rubik Tracker</title>
+    <!-- PWA Meta tags -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#0a0c10">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0c10;
+            --surface: #13161e;
+            --card: #1a1e2a;
+            --border: rgba(255,255,255,0.07);
+            --accent: #2563eb;
+            --accent2: #1d4ed8;
+            --green: #22c55e;
+            --yellow: #fbbf24;
+            --red: #ef4444;
+            --text: #e2e8f0;
+            --muted: #64748b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* === HEADER === */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        .logo {
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .logo span { color: var(--accent); }
+        .header-stats {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-size: 0.85rem;
+        }
+        .header-stat { color: var(--muted); }
+        .header-stat strong { color: var(--text); font-size: 1rem; }
+        .ble-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        .ble-badge:hover { border-color: var(--accent); }
+        .ble-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--red);
+            transition: background 0.3s;
+        }
+        .ble-dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2s infinite; }
+        .ble-dot.searching { background: var(--yellow); animation: pulse 0.8s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        /* === MAIN LAYOUT === */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* === LEFT PANEL: CUBE === */
+        .cube-panel {
+            flex: 1;
+            position: relative;
+            min-width: 0;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            touch-action: none; /* Permite rotar la cámara sin scrollear la web */
+        }
+
+        /* Overlay info on cube */
+        .cube-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 8px;
+        }
+        .cube-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(10,12,16,0.8);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s;
+        }
+        .cube-btn:hover { background: var(--card); border-color: var(--accent); }
+        .cube-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+        /* TPS badge over cube */
+        .tps-badge {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            color: white;
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tps-badge.show { opacity: 1; }
+
+        /* === RIGHT PANEL: STATS === */
+        .stats-panel {
+            width: 360px;
+            flex-shrink: 0;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Mobile toggle btn */
+        .mobile-stats-btn {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 12px 20px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            font-family: inherit;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 100;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .mobile-stats-btn:active { transform: scale(0.95); }
+
+        .stats-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--muted);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: rgba(37,99,235,0.05);
+        }
+
+        .tab-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: none;
+        }
+        .tab-content.active { display: block; }
+        .tab-content::-webkit-scrollbar { width: 4px; }
+        .tab-content::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 4px; }
+
+        /* Cards inside stats */
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .stat-card h3 {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--muted);
+            margin-bottom: 10px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .stat-row .label { font-size: 0.82rem; color: var(--muted); }
+        .stat-row .value { font-size: 1rem; font-weight: 700; color: var(--text); }
+        .stat-row .value.accent { color: var(--accent); }
+        .stat-row .value.green { color: var(--green); }
+        .stat-row .value.yellow { color: var(--yellow); }
+
+        /* Timer */
+        .big-timer {
+            text-align: center;
+            font-size: 2.2rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: var(--accent);
+            margin: 8px 0 4px;
+            font-variant-numeric: tabular-nums;
+        }
+        .timer-label { text-align: center; font-size: 0.7rem; color: var(--muted); margin-bottom: 8px; }
+
+        /* Move log */
+        #move-log {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 60px;
+            max-height: 90px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            word-break: break-all;
+        }
+        .move-chip {
+            display: inline-block;
+            background: var(--accent2);
+            color: white;
+            padding: 1px 7px;
+            border-radius: 4px;
+            margin: 1px;
+            font-weight: 600;
+            font-size: 0.78rem;
+        }
+        .move-chip.prime { background: #7c3aed; }
+
+        /* Bar chart */
+        .bar-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 80px;
+            margin-top: 8px;
+        }
+        .bar-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+        .bar-count { font-size: 0.6rem; color: var(--muted); }
+        .bar-fill {
+            border-radius: 3px 3px 0 0;
+            width: 100%;
+            min-height: 2px;
+            transition: height 0.4s ease;
+            background: var(--accent);
+        }
+        .bar-fill.prime-bar { background: #7c3aed; }
+        .bar-label { font-size: 0.58rem; color: var(--muted); white-space: nowrap; }
+
+        /* Controls grid */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .ctrl-btn {
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 7px 2px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.72rem;
+            font-family: inherit;
+            transition: all 0.15s;
+            text-align: center;
+        }
+        .ctrl-btn:hover { background: var(--accent2); border-color: var(--accent); }
+        .ctrl-btn:active { transform: scale(0.95); }
+
+        /* Bottom controls tab */
+        .bottom-bar {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+        .bottom-bar button {
+            flex: 1;
+            padding: 9px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .bottom-bar .btn-start { background: var(--accent); border-color: var(--accent); }
+        .bottom-bar .btn-start:hover { background: var(--accent2); }
+        .bottom-bar button:hover { background: #222; border-color: #444; }
+
+        /* === SCRAMBLE GUIDE PANEL === */
+        #scramble-guide {
+            display: none;
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(to top, rgba(10,12,16,0.97) 80%, transparent);
+            padding: 20px 20px 24px;
+            text-align: center;
+            z-index: 20;
+        }
+        #scramble-guide.active { display: block; }
+        .sg-progress {
+            font-size: 0.72rem;
+            color: var(--muted);
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+        }
+        .sg-sequence {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .sg-chip {
+            padding: 3px 10px;
+            border-radius: 6px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--muted);
+            transition: all 0.2s;
+        }
+        .sg-chip.done {
+            background: #14532d;
+            border-color: var(--green);
+            color: var(--green);
+            opacity: 0.55;
+        }
+        .sg-chip.current {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+            transform: scale(1.15);
+            box-shadow: 0 0 16px rgba(37,99,235,0.6);
+        }
+        .sg-big-move {
+            font-size: 5rem;
+            font-weight: 900;
+            color: white;
+            line-height: 1;
+            letter-spacing: -2px;
+            text-shadow: 0 0 30px rgba(37,99,235,0.8);
+            margin-bottom: 6px;
+        }
+        .sg-big-move .prime-char { color: #a78bfa; }
+        .sg-hint {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+        .sg-controls { display: flex; justify-content: center; gap: 10px; }
+        .sg-btn {
+            padding: 7px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .sg-btn:hover { background: #222; border-color: #555; }
+        .sg-btn.cancel { border-color: var(--red); color: var(--red); }
+        .sg-btn.cancel:hover { background: #7f1d1d; }
+
+        /* SOLVED overlay */
+        #solved-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(10,12,16,0.82);
+            z-index: 30;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+        }
+        #solved-overlay.active { display: flex; }
+        .solved-emoji { font-size: 4rem; margin-bottom: 12px; }
+        .solved-title {
+            font-size: 2rem;
+            font-weight: 900;
+            color: var(--green);
+            margin-bottom: 6px;
+        }
+        .solved-sub { font-size: 0.9rem; color: var(--muted); margin-bottom: 20px; }
+        .solved-btn {
+            padding: 10px 28px;
+            border-radius: 8px;
+            background: var(--accent);
+            border: none;
+            color: white;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        /* === RESPONSIVE (MOBILE) === */
+        @media (max-width: 768px) {
+            body { 
+                overflow: hidden; /* Encajar perfecto, sin scroll general */
+            }
+            .mobile-stats-btn { display: block; }
+            header {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 10px;
+                padding: 10px;
+                position: sticky;
+                top: 0;
+            }
+            .header-stats {
+                width: 100%;
+                justify-content: center;
+                gap: 12px;
+                font-size: 0.8rem;
+                order: 3;
+            }
+            .main {
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .cube-panel {
+                flex: 1;
+                min-height: 0;
+            }
+            .stats-panel {
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
+                width: 100%;
+                height: 70vh;
+                z-index: 90;
+                background: rgba(19, 22, 30, 0.95);
+                backdrop-filter: blur(15px);
+                transform: translateY(110%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                border-top: 1px solid var(--border);
+                border-left: none;
+                border-top-left-radius: 20px;
+                border-top-right-radius: 20px;
+                padding-bottom: 20px; /* Safe area */
+                box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+            }
+            .stats-panel.open-drawer {
+                transform: translateY(0);
+            }
+            .tab-content {
+                overflow-y: auto; /* Permitir scroll dentro del drawer */
+            }
+            #scramble-guide {
+                position: relative;
+                padding-bottom: 10px;
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+            }
+            .cube-overlay {
+                bottom: 10px; left: 10px;
+            }
+            .tps-badge {
+                top: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">🧊 <span>Cogni</span>Mirror Cube</div>
+    <div class="header-stats">
+        <div class="header-stat">Rotaciones: <strong id="hdr-moves">0</strong></div>
+        <div class="header-stat">Tiempo: <strong id="hdr-time">00:00.000</strong></div>
+        <div class="header-stat">TPS: <strong id="hdr-tps">0.00</strong></div>
+    </div>
+    <div class="ble-badge" id="ble-badge" onclick="connectBLE()">
+        <div class="ble-dot" id="ble-dot"></div>
+        <span id="ble-text">Conectar cubo</span>
+    </div>
+    <div id="batt-wrap" style="display:none;align-items:center;gap:6px;padding:5px 12px;background:var(--card);border:1px solid var(--border);border-radius:20px;font-size:0.8rem;">
+        <span id="batt-icon">🔋</span>
+        <span id="batt-text" style="font-weight:700;">—%</span>
+    </div>
+</header>
+
+<div class="main">
+    <button class="mobile-stats-btn" onclick="toggleMobileStats()">📊 Ver Métricas</button>
+    <!-- CUBE VIEW -->
+    <div class="cube-panel">
+        <div id="canvas-container"></div>
+
+        <div class="tps-badge" id="tps-badge">TPS: 0.00</div>
+
+        <!-- SOLVED overlay -->
+        <div id="solved-overlay">
+            <div class="solved-emoji">🏆</div>
+            <div class="solved-title">¡Cubo Resuelto!</div>
+            <div class="solved-sub" id="solved-sub">Tiempo: —</div>
+            <button class="solved-btn" onclick="closeSolved()">Nuevo intento</button>
+        </div>
+
+        <!-- SCRAMBLE GUIDE -->
+        <div id="scramble-guide">
+            <div class="sg-progress" id="sg-progress">SCRAMBLE — MOVIMIENTO 1 DE 20</div>
+            <div class="sg-sequence" id="sg-sequence"></div>
+            <div class="sg-big-move" id="sg-big-move">U</div>
+            <div class="sg-hint" id="sg-hint">Gira la cara marcada en tu cubo físico</div>
+            <div class="sg-controls">
+                <button class="sg-btn" onclick="sgPrev()">← Anterior</button>
+                <button class="sg-btn" onclick="sgNext()">Siguiente →</button>
+                <button class="sg-btn cancel" onclick="cancelScramble()">✕ Cancelar</button>
+            </div>
+        </div>
+
+        <div class="cube-overlay">
+            <button class="cube-btn" id="btn-scramble" onclick="startGuidedScramble()">🔀 Scramble Guiado</button>
+            <button class="cube-btn" onclick="resetCubeRotation()">↺ Vista</button>
+            <button class="cube-btn danger" onclick="resetStats()">✕ Reiniciar</button>
+        </div>
+    </div>
+
+    <!-- STATS PANEL -->
+    <div class="stats-panel">
+        <div class="stats-tabs">
+            <div class="tab active" onclick="switchTab('session')">Sesión</div>
+            <div class="tab" onclick="switchTab('moves')">Movimientos</div>
+            <div class="tab" onclick="switchTab('cognitivo')">🧠 Cognitivo</div>
+            <div class="tab" onclick="switchTab('controls')">Controles</div>
+        </div>
+
+        <!-- TAB: SESSION -->
+        <div class="tab-content active" id="tab-session">
+            <div class="stat-card">
+                <h3>⏱ Temporizador</h3>
+                <div class="big-timer" id="big-timer">00:00.000</div>
+                <div class="timer-label" id="timer-label">Práctica libre (Sin grabar)</div>
+                <div class="stat-row">
+                    <span class="label">Rotaciones</span>
+                    <span class="value accent" id="st-moves">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Giros por segundo (TPS)</span>
+                    <span class="value green" id="st-tps">0.00</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <h3>📋 Registro de movimientos</h3>
+                <div id="move-log"><span style="color:var(--muted);font-style:italic;">Esperando inicio...</span></div>
+            </div>
+
+            <div class="stat-card">
+                <h3>📊 Sesión</h3>
+                <div class="stat-row">
+                    <span class="label">Total movimientos</span>
+                    <span class="value" id="st-total">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Moves en horario</span>
+                    <span class="value green" id="st-cw">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Moves antihorario</span>
+                    <span class="value yellow" id="st-ccw">0</span>
+                </div>
+                <div class="stat-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+                    <span class="label">⏸ Tiempo inactivo total</span>
+                    <span class="value" style="color:#f87171" id="st-idle">00:00.000</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">% del tiempo inactivo</span>
+                    <span class="value" style="color:#f87171" id="st-idle-pct">0%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: MOVES chart -->
+        <div class="tab-content" id="tab-moves">
+            <div class="stat-card">
+                <h3>📈 Distribución por cara</h3>
+                <div class="bar-chart" id="bar-chart">
+                    <!-- generated by JS -->
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>🔝 Cara más usada</h3>
+                <div class="stat-row">
+                    <span class="label">Cara</span>
+                    <span class="value accent" id="top-face">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Frecuencia</span>
+                    <span class="value" id="top-freq">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Move más repetido</span>
+                    <span class="value green" id="top-move">—</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>⚡ Rachas</h3>
+                <div class="stat-row">
+                    <span class="label">Racha actual (TPS max)</span>
+                    <span class="value accent" id="st-streak-tps">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="label">Max TPS puntual</span>
+                    <span class="value green" id="st-max-tps">0.00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: COGNITIVO -->
+        <div class="tab-content" id="tab-cognitivo">
+            <div class="stat-card" style="border-left: 3px solid #7c3aed;">
+                <h3>🧠 Biomarcadores Cognitivos</h3>
+                <p style="font-size:0.68rem;color:#7c3aed;line-height:1.5;margin-bottom:10px;font-style:italic;">Métricas correlacionadas con la evaluación de la Función Ejecutiva (Cardoso et al., 2025). Análisis de Fluidez Motora como proxy de Eficiencia Neuronal.</p>
+
+                <div class="stat-row">
+                    <span class="label">Estabilidad de Procesamiento (SD)</span>
+                    <span class="value" id="cog-jitter">—</span>
+                </div>
+                <div style="font-size:0.65rem;color:var(--muted);margin-bottom:10px;">Desviación estándar de latencia inter-movimiento. Baja = flujo automático eficiente.</div>
+
+                <div class="stat-row">
+                    <span class="label">Transiciones de Fase (Shift Cost)</span>
+                    <span class="value accent" id="cog-shifts">0</span>
+                </div>
+                <div style="font-size:0.65rem;color:var(--muted);margin-bottom:10px;">Pausas &gt;1.5s entre ráfagas. Mide costo de cambio de estrategia en memoria de trabajo.</div>
+
+                <div class="stat-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+                    <span class="label" style="color:#ef4444;">⚡ Fallo Inhibitorio (&lt;400ms)</span>
+                    <span class="value" style="color:#ef4444;" id="cog-inhibitory">0</span>
+                </div>
+                <div style="font-size:0.65rem;color:var(--muted);margin-bottom:8px;">Impulsividad motora: giro+inverso antes de 400ms. Señal prefrontal no alcanzó a inhibir.</div>
+
+                <div class="stat-row">
+                    <span class="label" style="color:#fbbf24;">🧩 Fallo Mem. Trabajo (&gt;1000ms)</span>
+                    <span class="value" style="color:#fbbf24;" id="cog-working-mem">0</span>
+                </div>
+                <div style="font-size:0.65rem;color:var(--muted);margin-bottom:10px;">Error detectado tarde: el usuario evaluó el resultado visual antes de corregir.</div>
+            </div>
+
+            <div class="stat-card" id="cog-profile-card">
+                <h3>📋 Perfil Ejecutivo</h3>
+                <div id="cog-profile" style="font-size:0.82rem;line-height:1.7;color:var(--muted);">Completa un solve para generar el perfil.</div>
+            </div>
+        </div>
+
+        <!-- TAB: CONTROLS -->
+        <div class="tab-content" id="tab-controls">
+            <div class="stat-card">
+                <h3>🎮 Controles manuales</h3>
+                <div class="controls-grid">
+                    <button class="ctrl-btn" onclick="handleMove('U')">U</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('U\'')">U'</button>
+                    <button class="ctrl-btn" onclick="handleMove('D')">D</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('D\'')">D'</button>
+                    <button class="ctrl-btn" onclick="handleMove('U2')">U2</button>
+                    <button class="ctrl-btn" onclick="handleMove('D2')">D2</button>
+
+                    <button class="ctrl-btn" onclick="handleMove('R')">R</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('R\'')">R'</button>
+                    <button class="ctrl-btn" onclick="handleMove('L')">L</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('L\'')">L'</button>
+                    <button class="ctrl-btn" onclick="handleMove('R2')">R2</button>
+                    <button class="ctrl-btn" onclick="handleMove('L2')">L2</button>
+
+                    <button class="ctrl-btn" onclick="handleMove('F')">F</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('F\'')">F'</button>
+                    <button class="ctrl-btn" onclick="handleMove('B')">B</button>
+                    <button class="ctrl-btn prime" onclick="handleMove('B\'')">B'</button>
+                    <button class="ctrl-btn" onclick="handleMove('F2')">F2</button>
+                    <button class="ctrl-btn" onclick="handleMove('B2')">B2</button>
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>⌨ Teclado</h3>
+                <p style="font-size:0.78rem;color:var(--muted);line-height:1.6;">
+                    Presiona <strong style="color:var(--text)">U D L R F B</strong> para mover (horario)<br>
+                    Con <strong style="color:var(--text)">Shift</strong>: movimiento antihorario (U', D', ...) 
+                </p>
+            </div>
+        </div>
+
+        <div class="bottom-bar">
+            <button class="btn-start" id="btn-start" onclick="toggleEvalMode()">▶ Preparar Evaluación</button>
+            <button onclick="resetStats()">🔄 Reset</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .ctrl-btn.prime { border-color: rgba(124,58,237,0.3); }
+    .ctrl-btn.prime:hover { background: #7c3aed; border-color: #7c3aed; }
+</style>
+
+<script>
+// ==================== BLE ====================
+const SERVICE_UUID    = '12345678-1234-5678-1234-56789abcdef0';
+const CHAR_LED_UUID   = '12345678-1234-5678-1234-56789abcdef1';
+const CHAR_GYRO_UUID  = 'beb5483e-36e1-4688-b7f5-ea07361b26a9';
+let bleDevice, bleServer;
+let isConnected = false;
+
+async function connectBLE() {
+    const dot = document.getElementById('ble-dot');
+    const txt = document.getElementById('ble-text');
+    const badge  = document.getElementById('ble-badge');
+    try {
+        dot.className = 'ble-dot searching';
+        txt.textContent = 'Buscando...';
+        badge.style.pointerEvents = 'none';
+
+        bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [
+                { namePrefix: 'CogniMirror' },
+                { namePrefix: 'Rubiks' },
+                { namePrefix: 'GoCube' }
+            ],
+            optionalServices: [
+                SERVICE_UUID,
+                '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+                '0000180f-0000-1000-8000-00805f9b34fb'  // Battery Service
+            ]
+        });
+
+        txt.textContent = 'Conectando...';
+        bleServer = await bleDevice.gatt.connect();
+
+        if (bleDevice.name.includes('CogniMirror')) {
+            const svc = await bleServer.getPrimaryService(SERVICE_UUID);
+            const gyroChar = await svc.getCharacteristic(CHAR_GYRO_UUID);
+            await gyroChar.startNotifications();
+            gyroChar.addEventListener('characteristicvaluechanged', handleGyroData);
+        } else {
+            // Rubik's Connected
+            const svc = await bleServer.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+            const notifyChar = await svc.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+            await notifyChar.startNotifications();
+            notifyChar.addEventListener('characteristicvaluechanged', handleRubiksData);
+        }
+
+        // Intentar leer batería GATT estándar
+        try {
+            const batSvc = await bleServer.getPrimaryService('0000180f-0000-1000-8000-00805f9b34fb');
+            const batChar = await batSvc.getCharacteristic('00002a19-0000-1000-8000-00805f9b34fb');
+            const val = await batChar.readValue();
+            const pct = val.getUint8(0);
+            updateBattery(pct);
+            // Leer batería cada 30 segundos
+            setInterval(async () => {
+                try {
+                    const v = await batChar.readValue();
+                    updateBattery(v.getUint8(0));
+                } catch(e) {}
+            }, 30000);
+        } catch(e) {
+            // Cubo no soporta battery service estándar — lo ocultamos
+            document.getElementById('batt-wrap').style.display = 'none';
+        }
+
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+        isConnected = true;
+        dot.className = 'ble-dot ok';
+        txt.textContent = bleDevice.name;
+        badge.style.pointerEvents = 'none';
+    } catch(e) {
+        dot.className = 'ble-dot';
+        txt.textContent = 'Conectar cubo';
+        badge.style.pointerEvents = '';
+        console.error(e);
+    }
+}
+
+function onDisconnected() {
+    isConnected = false;
+    document.getElementById('ble-dot').className = 'ble-dot';
+    document.getElementById('ble-text').textContent = 'Reconectar';
+    document.getElementById('ble-badge').style.pointerEvents = '';
+    document.getElementById('batt-wrap').style.display = 'none';
+}
+
+function updateBattery(pct) {
+    const wrap = document.getElementById('batt-wrap');
+    const icon = document.getElementById('batt-icon');
+    const txt  = document.getElementById('batt-text');
+    wrap.style.display = 'flex';
+    txt.textContent = pct + '%';
+    if (pct <= 15) {
+        icon.textContent = '🪫';
+        txt.style.color = '#ef4444';
+    } else if (pct <= 40) {
+        icon.textContent = '🔋';
+        txt.style.color = '#fbbf24';
+    } else {
+        icon.textContent = '🔋';
+        txt.style.color = '#22c55e';
+    }
+}
+
+function handleGyroData(event) {
+    try {
+        const data = JSON.parse(new TextDecoder().decode(event.target.value));
+        // ESP32 mode – rotación (giroscopio)
+        const dt = 0.05;
+        targetRotation.x += data.x * dt;
+        targetRotation.y += data.y * dt;
+        targetRotation.z += data.z * dt;
+    } catch(e) {}
+}
+
+function handleRubiksData(event) {
+    const bytes = new Uint8Array(event.target.value.buffer);
+    if (bytes.length < 8 || bytes[0] !== 42 || bytes[1] !== 6) return;
+    const checksum = (bytes[0]+bytes[1]+bytes[2]+bytes[3]+bytes[4]) & 0xFF;
+    if (bytes[5] !== checksum) return;
+
+    const moveId = bytes[3];
+    // 0,1=Azul(B) | 2,3=Verde(F) | 4,5=Blanco(U) | 6,7=Amarillo(D) | 8,9=Rojo(R) | 10,11=Naranjo(L)
+    const faces = ["B", "F", "U", "D", "R", "L"];
+    const faceName = faces[Math.floor(moveId / 2)];
+    const modifier = (moveId % 2 !== 0) ? "'" : "";
+    handleMove(faceName + modifier);
+}
+
+// ==================== TIMER & STATS ====================
+let timerRunning = false;
+let timerStart = 0;
+let timerElapsed = 0;
+let timerInterval = null;
+let moveHistory = [];
+let faceCounts = { U:0,"U'":0, D:0,"D'":0, R:0,"R'":0, L:0,"L'":0, F:0,"F'":0, B:0,"B'":0 };
+let clockwiseCount = 0;
+let counterClockwiseCount = 0;
+let maxTps = 0;
+let lastMoveTime = 0;
+let idleTotalMs = 0;
+const IDLE_THRESHOLD_MS = 1000;
+
+// === BIOMARCADORES COGNITIVOS ===
+let interMoveTimes = [];          // array de latencias entre giros (ms)
+let phaseShifts = 0;              // Nú de pausas >1.5s entre ráfagas
+let inBurst = false;              // Si estamos dentro de una ráfaga
+let inhibitoryErrors = 0;         // Giro+inverso < 400ms
+let workingMemErrors = 0;         // Giro+inverso 400ms-2000ms
+
+let appMode = 'FREE'; // FREE, READY, SOLVING
+
+function toggleMobileStats() {
+    const p = document.querySelector('.stats-panel');
+    const isOp = p.classList.toggle('open-drawer');
+    const btn = document.querySelector('.mobile-stats-btn');
+    if (btn) btn.textContent = isOp ? '▼ Ocultar' : '📊 Ver Métricas';
+}
+
+function toggleEvalMode() {
+    const btn = document.getElementById('btn-start');
+    if (appMode === 'FREE') {
+        appMode = 'READY';
+        resetStats(true); // reset pero mantener listos
+        btn.textContent = '✋ Esperando (Gira ahora)';
+        btn.style.background = '#fbbf24';
+        btn.style.borderColor = '#fbbf24';
+        btn.style.color = '#000';
+        document.getElementById('timer-label').textContent = 'Listo. Mueve el cubo físico.';
+        document.getElementById('move-log').innerHTML = '<span style="color:var(--yellow);font-style:italic;">Evaluación lista para iniciar...</span>';
+        
+        // Hide mobile stats to let user see cube clearly
+        document.querySelector('.stats-panel').classList.remove('open-drawer');
+        const mBtn = document.querySelector('.mobile-stats-btn');
+        if (mBtn) mBtn.textContent = '📊 Ver Métricas';
+    } else if (appMode === 'READY' || appMode === 'SOLVING') {
+        appMode = 'FREE';
+        clearInterval(timerInterval);
+        timerRunning = false;
+        btn.textContent = '▶ Preparar Evaluación';
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.style.color = '';
+        document.getElementById('timer-label').textContent = 'Práctica libre (Sin grabar)';
+    }
+}
+
+function startSolving() {
+    appMode = 'SOLVING';
+    timerStart = Date.now() - timerElapsed;
+    timerInterval = setInterval(updateTimer, 50);
+    timerRunning = true;
+    
+    const btn = document.getElementById('btn-start');
+    btn.textContent = '⏹ Detener Evaluación';
+    btn.style.background = '#ef4444';
+    btn.style.borderColor = '#ef4444';
+    btn.style.color = 'white';
+    document.getElementById('timer-label').textContent = 'Evaluando...';
+}
+
+function updateTimer() {
+    timerElapsed = Date.now() - timerStart;
+    const t = formatTime(timerElapsed);
+    document.getElementById('big-timer').textContent = t;
+    document.getElementById('hdr-time').textContent = t;
+
+    const secs = timerElapsed / 1000;
+    const tps = secs > 0 ? (moveHistory.length / secs).toFixed(2) : '0.00';
+    document.getElementById('st-tps').textContent = tps;
+    document.getElementById('hdr-tps').textContent = tps;
+
+    // Actualizar inactividad en tiempo real si el cubo lleva > 1s sin moverse
+    let displayIdle = idleTotalMs;
+    if (lastMoveTime > 0 && timerRunning) {
+        const gapNow = Date.now() - lastMoveTime;
+        if (gapNow > IDLE_THRESHOLD_MS) displayIdle += gapNow - IDLE_THRESHOLD_MS;
+    }
+    document.getElementById('st-idle').textContent = formatTime(displayIdle);
+    const pct = timerElapsed > 0 ? Math.round((displayIdle / timerElapsed) * 100) : 0;
+    document.getElementById('st-idle-pct').textContent = pct + '%';
+}
+
+function formatTime(ms) {
+    const m = Math.floor(ms / 60000).toString().padStart(2,'0');
+    const s = Math.floor((ms % 60000) / 1000).toString().padStart(2,'0');
+    const mil = Math.floor(ms % 1000).toString().padStart(3,'0');
+    return `${m}:${s}.${mil}`;
+}
+
+function recordMove(notation) {
+    moveHistory.push({ move: notation, t: Date.now() });
+
+    // Count face
+    const key = notation.length > 1 && notation[1] === "'" ? notation.substring(0,2) : notation.charAt(0);
+    if (faceCounts[key] !== undefined) faceCounts[key]++;
+    else if (faceCounts[notation]) faceCounts[notation]++;
+
+    if (notation.includes("'")) counterClockwiseCount++;
+    else clockwiseCount++;
+
+    // TPS puntual + acumular inactividad
+    const now = Date.now();
+    if (lastMoveTime > 0) {
+        const dt = now - lastMoveTime;
+        // Si el gap supera el umbral, la diferencia (gap - umbral) es tiempo inactivo
+        if (dt > IDLE_THRESHOLD_MS) {
+            idleTotalMs += dt - IDLE_THRESHOLD_MS;
+        }
+        const dtSecs = dt / 1000;
+        if (dtSecs > 0) {
+            const pointTps = (1 / dtSecs);
+            if (pointTps > maxTps) maxTps = pointTps;
+        }
+    }
+    lastMoveTime = now;
+
+    const total = moveHistory.length;
+    document.getElementById('st-moves').textContent = total;
+    document.getElementById('st-total').textContent = total;
+    document.getElementById('hdr-moves').textContent = total;
+    document.getElementById('st-cw').textContent = clockwiseCount;
+    document.getElementById('st-ccw').textContent = counterClockwiseCount;
+    document.getElementById('st-max-tps').textContent = maxTps.toFixed(2);
+
+    updateMoveLog(notation);
+    updateBarChart();
+    updateTopFace();
+    showTpsBadge();
+    analyzeCognitiveMetrics(notation);
+}
+
+function updateMoveLog(notation) {
+    const log = document.getElementById('move-log');
+    if (moveHistory.length === 1) log.innerHTML = '';
+    const chip = document.createElement('span');
+    chip.className = 'move-chip' + (notation.includes("'") ? ' prime' : '');
+    chip.textContent = notation;
+    log.appendChild(chip);
+    log.scrollTop = log.scrollHeight;
+}
+
+function updateBarChart() {
+    const chart = document.getElementById('bar-chart');
+    const keys = ['U',"U'",'D',"D'",'R',"R'",'L',"L'",'F',"F'",'B',"B'"];
+    const maxVal = Math.max(1, ...keys.map(k => faceCounts[k] || 0));
+
+    chart.innerHTML = '';
+    keys.forEach(k => {
+        const val = faceCounts[k] || 0;
+        const height = Math.round((val / maxVal) * 70);
+        const isPrime = k.includes("'");
+        const group = document.createElement('div');
+        group.className = 'bar-group';
+        group.innerHTML = `
+            <span class="bar-count">${val > 0 ? val : ''}</span>
+            <div class="bar-fill ${isPrime ? 'prime-bar':''}" style="height:${height}px"></div>
+            <span class="bar-label">${k.replace("'","'")}</span>
+        `;
+        chart.appendChild(group);
+    });
+}
+
+function updateTopFace() {
+    const faces = ['U','D','R','L','F','B'];
+    let topFace = '';
+    let topVal = 0;
+    let topMove = '';
+    let topMoveVal = 0;
+
+    faces.forEach(f => {
+        const cw = faceCounts[f] || 0;
+        const ccw = faceCounts[f+"'"] || 0;
+        const total = cw + ccw;
+        if (total > topVal) { topVal = total; topFace = f; }
+    });
+
+    Object.keys(faceCounts).forEach(k => {
+        if ((faceCounts[k] || 0) > topMoveVal) {
+            topMoveVal = faceCounts[k];
+            topMove = k;
+        }
+    });
+
+    if (topFace) document.getElementById('top-face').textContent = topFace;
+    document.getElementById('top-freq').textContent = topVal;
+    if (topMove) document.getElementById('top-move').textContent = topMove;
+}
+
+let tpsBadgeTimeout;
+function showTpsBadge() {
+    const badge = document.getElementById('tps-badge');
+    const secs = timerElapsed / 1000;
+    const tps = secs > 0 ? (moveHistory.length / secs).toFixed(2) : '—';
+    badge.textContent = `TPS: ${tps}`;
+    badge.classList.add('show');
+    clearTimeout(tpsBadgeTimeout);
+    tpsBadgeTimeout = setTimeout(() => badge.classList.remove('show'), 1500);
+}
+
+function resetStats() {
+    clearInterval(timerInterval);
+    timerRunning = false;
+    timerStart = 0;
+    timerElapsed = 0;
+    moveHistory = [];
+    faceCounts = { U:0,"U'":0, D:0,"D'":0, R:0,"R'":0, L:0,"L'":0, F:0,"F'":0, B:0,"B'":0 };
+    clockwiseCount = 0;
+    counterClockwiseCount = 0;
+    maxTps = 0;
+    lastMoveTime = 0;
+    idleTotalMs = 0;
+    // Reset cognitivo
+    interMoveTimes = [];
+    phaseShifts = 0;
+    inBurst = false;
+    inhibitoryErrors = 0;
+    workingMemErrors = 0;
+    // Reset UI cognitivo
+    const cogEl = document.getElementById('cog-jitter');
+    if (cogEl) { cogEl.textContent = '—'; cogEl.style.color = ''; }
+    const shEl = document.getElementById('cog-shifts');
+    if (shEl) shEl.textContent = '0';
+    const inEl = document.getElementById('cog-inhibitory');
+    if (inEl) inEl.textContent = '0';
+    const wmEl = document.getElementById('cog-working-mem');
+    if (wmEl) wmEl.textContent = '0';
+    const prEl = document.getElementById('cog-profile');
+    if (prEl) { prEl.textContent = 'Completa un solve para generar el perfil.'; prEl.style.color = ''; }
+
+    document.getElementById('big-timer').textContent = '00:00.000';
+    document.getElementById('hdr-time').textContent = '00:00.000';
+    document.getElementById('hdr-moves').textContent = '0';
+    document.getElementById('hdr-tps').textContent = '0.00';
+    document.getElementById('st-moves').textContent = '0';
+    document.getElementById('st-tps').textContent = '0.00';
+    document.getElementById('st-total').textContent = '0';
+    document.getElementById('st-cw').textContent = '0';
+    document.getElementById('st-ccw').textContent = '0';
+    document.getElementById('st-max-tps').textContent = '0.00';
+    document.getElementById('st-idle').textContent = '00:00.000';
+    document.getElementById('st-idle-pct').textContent = '0%';
+    if (keepReady !== true) {
+        appMode = 'FREE';
+        const btn = document.getElementById('btn-start');
+        btn.textContent = '▶ Preparar Evaluación';
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.style.color = '';
+        document.getElementById('timer-label').textContent = 'Práctica libre (Sin grabar)';
+        document.getElementById('move-log').innerHTML = '<span style="color:var(--muted);font-style:italic;">Esperando inicio...</span>';
+    }
+    document.getElementById('top-face').textContent = '—';
+    document.getElementById('top-freq').textContent = '0';
+    document.getElementById('top-move').textContent = '—';
+    updateBarChart();
+}
+
+function analyzeCognitiveMetrics(notation) {
+    const now = Date.now();
+    const n = moveHistory.length;
+    if (n < 2) return;
+
+    const gap = now - moveHistory[n-2].t;
+    interMoveTimes.push(gap);
+
+    // ---- JITTER: Desviación Estándar de latencia inter-movimiento ----
+    if (interMoveTimes.length >= 3) {
+        const mean = interMoveTimes.reduce((a,b)=>a+b,0) / interMoveTimes.length;
+        const variance = interMoveTimes.reduce((s,v)=>s+Math.pow(v-mean,2),0) / interMoveTimes.length;
+        const sd = Math.sqrt(variance);
+        document.getElementById('cog-jitter').textContent = sd.toFixed(0) + ' ms';
+        document.getElementById('cog-jitter').style.color = sd < 200 ? '#22c55e' : sd < 500 ? '#fbbf24' : '#ef4444';
+    }
+
+    // ---- PHASE SHIFTS: Pausa >1.5s entre ráfagas ----
+    if (gap > 1500) {
+        if (inBurst) { phaseShifts++; inBurst = false; }
+        document.getElementById('cog-shifts').textContent = phaseShifts;
+    } else if (gap < 500) {
+        inBurst = true;
+    }
+
+    // ---- CONTROL INHIBITORIO: Giro + inverso ----
+    const prev = moveHistory[n-2].move;
+    const prevFace = prev.charAt(0);
+    const prevPrime = prev.includes("'");
+    const currFace = notation.charAt(0);
+    const currPrime = notation.includes("'");
+    // Detectar si son inversos: misma cara, distinto sentido
+    if (prevFace === currFace && prevPrime !== currPrime) {
+        if (gap < 400) {
+            inhibitoryErrors++;
+            document.getElementById('cog-inhibitory').textContent = inhibitoryErrors;
+        } else if (gap >= 400 && gap <= 2000) {
+            workingMemErrors++;
+            document.getElementById('cog-working-mem').textContent = workingMemErrors;
+        }
+    }
+}
+
+function generateCognitiveProfile() {
+    const total = moveHistory.length;
+    if (total < 5) return;
+    const sd = interMoveTimes.length >= 3
+        ? Math.sqrt(interMoveTimes.reduce((s,v,_,a)=>s+Math.pow(v-a.reduce((x,y)=>x+y,0)/a.length,2),0)/interMoveTimes.length)
+        : 999;
+    const errTotal = inhibitoryErrors + workingMemErrors;
+    const errRate = total > 0 ? errTotal / total : 0;
+    let profile = '';
+    let color = '#e2e8f0';
+    if (sd < 200 && errRate < 0.05) {
+        profile = '🏆 Ejecutor Automático — Ritmo muy constante y errores mínimos. Alta eficiencia sináptica y automatización motora fluida (bajo ratio Theta/Alpha en corteza prefrontal).';
+        color = '#22c55e';
+    } else if (sd < 200 && errRate >= 0.05) {
+        profile = '🎯 Apresurado Inhibido — Ritmo constante pero con impulsos motores sin inhibir. Probable alta ansiedad de rendimiento o fatiga prefrontal temprana.';
+        color = '#fbbf24';
+    } else if (sd >= 200 && sd < 500 && errRate < 0.1) {
+        profile = '🧩 Estratega Flexible — Variedad de ritmos con pocos errores. Buena flexibilidad cognitiva y memoria de trabajo activa.';
+        color = '#60a5fa';
+    } else if (phaseShifts >= 3) {
+        profile = '🔄 Alto Costo de Cambio — Muchas pausas entre estrategias. La corteza prefrontal tarda en cambiar de set cognitivo (posible déficit de flexibilidad o estrategia no consolidada).';
+        color = '#f97316';
+    } else {
+        profile = '⚡ Patrón Variable — Ritmo errático y errores frecuentes. Alta carga cognitiva durante el solve. Posible sobrecarga de la memoria de trabajo espacial.';
+        color = '#ef4444';
+    }
+    const el = document.getElementById('cog-profile');
+    el.textContent = profile;
+    el.style.color = color;
+}
+
+function switchTab(name) {
+    const ids = ['session','moves','cognitivo','controls'];
+    document.querySelectorAll('.tab').forEach((t, i) => {
+        t.classList.toggle('active', ids[i] === name);
+    });
+    document.querySelectorAll('.tab-content').forEach(c => {
+        c.classList.toggle('active', c.id === 'tab-'+name);
+    });
+    if (name === 'moves') updateBarChart();
+    if (name === 'cognitivo') generateCognitiveProfile();
+}
+
+// ==================== 3D CUBE ====================
+let scene, camera, renderer, controls;
+let cubeGroup;
+const allCubies = [];
+let isAnimating = false;
+let moveQueue = [];
+let targetRotation = { x: 0, y: 0, z: 0 };
+
+const COLORS = {
+    U: 0xffffff, D: 0xffd500,
+    F: 0x009e60, B: 0x0051ba,
+    R: 0xc41e3a, L: 0xff5800,
+    CORE: 0x1a1a1a
+};
+
+function init3D() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0c10);
+    scene.fog = new THREE.Fog(0x0a0c10, 20, 80);
+
+    camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+    camera.position.set(5, 4.5, 7);
+    camera.lookAt(0,0,0);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    const container = document.getElementById('canvas-container');
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    dir.position.set(8, 15, 10);
+    dir.castShadow = true;
+    scene.add(dir);
+    const fill = new THREE.DirectionalLight(0x88aaff, 0.3);
+    fill.position.set(-8,-5,-10);
+    scene.add(fill);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enablePan = false;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 5;
+    controls.maxDistance = 20;
+
+    cubeGroup = new THREE.Group();
+    scene.add(cubeGroup);
+
+    buildCube();
+
+    const observer = new ResizeObserver(() => resizeRenderer());
+    observer.observe(container);
+
+    render3D();
+}
+
+function buildCube() {
+    const geo = new THREE.BoxGeometry(0.92, 0.92, 0.92);
+    // Edge rounding simulation via separate edge geometry
+    for (let x=-1;x<=1;x++) for (let y=-1;y<=1;y++) for (let z=-1;z<=1;z++) {
+        const mats = [
+            new THREE.MeshPhongMaterial({color: x===1?COLORS.R:COLORS.CORE, shininess:80}),
+            new THREE.MeshPhongMaterial({color: x===-1?COLORS.L:COLORS.CORE, shininess:80}),
+            new THREE.MeshPhongMaterial({color: y===1?COLORS.U:COLORS.CORE, shininess:80}),
+            new THREE.MeshPhongMaterial({color: y===-1?COLORS.D:COLORS.CORE, shininess:80}),
+            new THREE.MeshPhongMaterial({color: z===1?COLORS.F:COLORS.CORE, shininess:80}),
+            new THREE.MeshPhongMaterial({color: z===-1?COLORS.B:COLORS.CORE, shininess:80}),
+        ];
+        const cubie = new THREE.Mesh(geo, mats);
+        cubie.position.set(x, y, z);
+        cubie.userData = { origX: x, origY: y, origZ: z };
+        cubie.castShadow = true;
+        cubeGroup.add(cubie);
+        allCubies.push(cubie);
+    }
+}
+
+const MOVES_CONFIG = {
+    'U': {axis:'y',val:1, angle:-Math.PI/2},
+    'D': {axis:'y',val:-1,angle:Math.PI/2},
+    'R': {axis:'x',val:1, angle:-Math.PI/2},
+    'L': {axis:'x',val:-1,angle:Math.PI/2},
+    'F': {axis:'z',val:1, angle:-Math.PI/2},
+    'B': {axis:'z',val:-1,angle:Math.PI/2},
+};
+
+window.handleMove = function(notation) {
+    if (!MOVES_CONFIG[notation.charAt(0)]) return;
+    recordMove(notation);
+    moveQueue.push(notation);
+    processQueue();
+}
+
+async function processQueue() {
+    if (isAnimating || moveQueue.length === 0) return;
+    isAnimating = true;
+    const notation = moveQueue.shift();
+
+    const face = notation.charAt(0);
+    const mod = notation.length > 1 ? notation.charAt(1) : '';
+    let count = mod === '2' ? 2 : 1;
+    let angle = MOVES_CONFIG[face].angle;
+    if (mod === "'") angle *= -1;
+
+    const steps = moveQueue.length > 3 ? 4 : moveQueue.length > 0 ? 8 : 14;
+
+    for (let i=0; i<count; i++) {
+        await rotateFace(MOVES_CONFIG[face].axis, MOVES_CONFIG[face].val, angle, steps);
+    }
+    isAnimating = false;
+    if (moveQueue.length > 0) {
+        processQueue();
+    } else {
+        // Cola vacía: verificar si el cubo está resuelto
+        checkIfSolved();
+    }
+}
+
+function rotateFace(axis, val, angle, steps=14) {
+    return new Promise(resolve => {
+        const active = allCubies.filter(c => {
+            const wp = new THREE.Vector3();
+            c.getWorldPosition(wp);
+            return Math.abs(wp[axis] - val) < 0.5;
+        });
+        const pivot = new THREE.Object3D();
+        cubeGroup.add(pivot);
+        active.forEach(c => pivot.attach(c));
+        const dA = angle / steps;
+        let step = 0;
+        function tick() {
+            if (step < steps) {
+                pivot.rotation[axis] += dA;
+                step++;
+                requestAnimationFrame(tick);
+            } else {
+                pivot.updateMatrixWorld();
+                active.forEach(c => {
+                    cubeGroup.attach(c);
+                    c.position.x = Math.round(c.position.x);
+                    c.position.y = Math.round(c.position.y);
+                    c.position.z = Math.round(c.position.z);
+                });
+                cubeGroup.remove(pivot);
+                resolve();
+            }
+        }
+        tick();
+    });
+}
+
+// ==================== SCRAMBLE GUIADO ====================
+let sgSequence = [];
+let sgIndex = 0;
+let sgActive = false;
+
+window.startGuidedScramble = function() {
+    if (sgActive) return;
+    const faces = ['U','D','L','R','F','B'];
+    const mods = ["'", "", ""];
+    sgSequence = [];
+    let lastFace = '';
+    for (let i=0; i<20; i++) {
+        let face;
+        do { face = faces[Math.floor(Math.random()*6)]; } while (face === lastFace);
+        lastFace = face;
+        sgSequence.push(face + mods[Math.floor(Math.random()*3)]);
+    }
+    sgIndex = 0;
+    sgActive = true;
+    document.getElementById('scramble-guide').classList.add('active');
+    document.getElementById('btn-scramble').disabled = true;
+    renderSgStep();
+};
+
+function renderSgStep() {
+    if (!sgActive) return;
+    const total = sgSequence.length;
+    document.getElementById('sg-progress').textContent = `SCRAMBLE — MOVIMIENTO ${sgIndex+1} DE ${total}`;
+
+    // Chips de progreso
+    const seq = document.getElementById('sg-sequence');
+    seq.innerHTML = '';
+    sgSequence.forEach((m, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'sg-chip' + (i < sgIndex ? ' done' : i === sgIndex ? ' current' : '');
+        chip.textContent = m;
+        seq.appendChild(chip);
+    });
+
+    // Letra gigante
+    const move = sgSequence[sgIndex];
+    const bigEl = document.getElementById('sg-big-move');
+    if (move.includes("'")) {
+        bigEl.innerHTML = move[0] + '<span class="prime-char">\'</span>';
+    } else {
+        bigEl.textContent = move;
+    }
+
+    const hints = {
+        U: 'Gira la cara SUPERIOR (amarilla)', D: 'Gira la cara INFERIOR (blanca)',
+        R: 'Gira la cara DERECHA (roja)', L: 'Gira la cara IZQUIERDA (naranja)',
+        F: 'Gira la cara FRONTAL (azul)', B: 'Gira la cara TRASERA (verde)',
+    };
+    const dir = move.includes("'") ? ' ← ANTIHORARIO' : ' → HORARIO';
+    document.getElementById('sg-hint').textContent = (hints[move[0]] || move[0]) + dir;
+
+    // Aplicar en cubo virtual
+    moveQueue.push(move);
+    processQueue();
+}
+
+window.sgNext = function() {
+    if (!sgActive) return;
+    sgIndex++;
+    if (sgIndex >= sgSequence.length) {
+        finishScramble();
+    } else {
+        renderSgStep();
+    }
+};
+
+window.sgPrev = function() {
+    if (!sgActive || sgIndex <= 0) return;
+    sgIndex--;
+    renderSgStep();
+};
+
+window.cancelScramble = function() {
+    sgActive = false;
+    document.getElementById('scramble-guide').classList.remove('active');
+    document.getElementById('btn-scramble').disabled = false;
+};
+
+function finishScramble() {
+    sgActive = false;
+    document.getElementById('scramble-guide').classList.remove('active');
+    document.getElementById('btn-scramble').disabled = false;
+    // Resetear stats y empezar sesión limpia
+    resetStats();
+}
+
+// Avanzar automáticamente si BLE detecta el movimiento correcto
+const _origHandleMove = window.handleMove;
+window.handleMove = function(notation) {
+    if (sgActive && sgIndex < sgSequence.length) {
+        const expected = sgSequence[sgIndex];
+        if (notation === expected) {
+            sgIndex++;
+            if (sgIndex >= sgSequence.length) {
+                finishScramble();
+            } else {
+                renderSgStep();
+            }
+            return; // El cubo virtual ya se movió en renderSgStep
+        }
+    }
+    if (!MOVES_CONFIG[notation.charAt(0)]) return;
+
+    if (appMode === 'READY') {
+        startSolving();
+    }
+
+    if (appMode === 'SOLVING') {
+        recordMove(notation);
+    }
+
+    // El 3D visual se actualiza en CUALQUIER MODO (FREE, READY, SOLVING)
+    moveQueue.push(notation);
+    processQueue();
+}
+
+window.resetCubeRotation = function() {
+    cubeGroup.rotation.set(0,0,0);
+    targetRotation = {x:0,y:0,z:0};
+};
+
+// ==================== DETECCIÓN DE CUBO RESUELTO ====================
+function checkIfSolved() {
+    if (!timerRunning) return;
+    // El cubo virtual está resuelto cuando cada cubie está en su posición original
+    // Comprobamos posiciones redondeadas: todos deben coincidir con su userData original
+    const solved = allCubies.every(c => {
+        return Math.abs(c.position.x - Math.round(c.userData.origX)) < 0.15 &&
+               Math.abs(c.position.y - Math.round(c.userData.origY)) < 0.15 &&
+               Math.abs(c.position.z - Math.round(c.userData.origZ)) < 0.15;
+    });
+    if (solved && moveHistory.length > 0) {
+        // Auto-pausa
+        clearInterval(timerInterval);
+        timerRunning = false;
+        document.getElementById('btn-start').textContent = '▶ Iniciar';
+        document.getElementById('timer-label').textContent = '¡Resuelto!';
+        // Mostrar overlay
+        document.getElementById('solved-sub').textContent = `Tiempo: ${formatTime(timerElapsed)}  •  Rotaciones: ${moveHistory.length}  •  TPS: ${(moveHistory.length/(timerElapsed/1000)).toFixed(2)}`;
+        document.getElementById('solved-overlay').classList.add('active');
+    }
+}
+
+window.closeSolved = function() {
+    document.getElementById('solved-overlay').classList.remove('active');
+    resetStats();
+};
+
+function resizeRenderer() {
+    const c = document.getElementById('canvas-container');
+    camera.aspect = c.clientWidth / c.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(c.clientWidth, c.clientHeight);
+}
+
+function render3D() {
+    requestAnimationFrame(render3D);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// Keyboard
+window.addEventListener('keydown', e => {
+    const k = e.key.toUpperCase();
+    if ('UDLRFB'.includes(k) && k.length===1) {
+        handleMove(k + (e.shiftKey ? "'" : ""));
+    }
+});
+
+// Init
+init3D();
+updateBarChart();
+
+// ==================== PWA ====================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('SW registrado', reg))
+        .catch(err => console.log('Error SW', err));
+    });
+}
+</script>
+</body>
+</html>
