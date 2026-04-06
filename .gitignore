@@ -20,7 +20,6 @@ esp32_ble_project/.vscode/
 
 # Logs
 *.log
-<<<<<<< HEAD
 node_modules
 
 .next/
@@ -29,5 +28,3 @@ node_modules
 .vscode/
 /tmp/
 
-=======
->>>>>>> ae6825cffcc878f020a44158b1085b2de2a4c638
