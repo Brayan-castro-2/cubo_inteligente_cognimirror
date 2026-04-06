@@ -1,0 +1,29 @@
+{
+  "name": "cubo-inteligent-nextjs",
+  "version": "1.0.0",
+  "description": "> **Plataforma de evaluación neuropsicológica basada en el Cubo de Rubik inteligente**",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.105.6",
+    "@react-three/fiber": "^8.16.2",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.378.0",
+    "next": "14.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.164.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.27",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1"
+  }
+}

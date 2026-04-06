@@ -1,0 +1,30 @@
+# Binarios y ejecutables
+*.exe
+*.zip
+*.sys
+*.dll
+
+# Drivers y herramientas locales
+arduino-cli.exe
+arduino-cli.zip
+silabser.sys
+
+# Archivos del sistema
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# PlatformIO
+esp32_ble_project/.pio/
+esp32_ble_project/.vscode/
+
+# Logs
+*.log
+node_modules
+
+.next/
+.env
+.env.local
+.vscode/
+/tmp/
+
