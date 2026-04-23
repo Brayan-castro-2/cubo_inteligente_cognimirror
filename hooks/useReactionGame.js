@@ -18,10 +18,41 @@ function shuffleArray(array) {
   return arr;
 }
 
-function generateLevels() {
-  // 5 turnos por mano, exactamente balanceado, orden aleatorio
-  return shuffleArray(['R', 'R', 'R', 'R', 'R', 'L', 'L', 'L', 'L', 'L']);
+function generateClinicalDeck(numNoGo = 5, mode = 'ESTANDAR') {
+  const goFaces = mode === 'FLEXIBILIDAD' ? ['U', 'D'] : ['R', 'L'];
+  const noGoPool = ['R', 'L', 'F', 'B', 'U', 'D'].filter(f => !goFaces.includes(f));
+
+  // 1. Reservar dos cartas GO para inicio y fin
+  const firstGo = goFaces[Math.floor(Math.random() * goFaces.length)];
+  const lastGo = goFaces[Math.floor(Math.random() * goFaces.length)];
+
+  // 2. Pool intermedio (el resto de los 10 GOs + los No-Gos)
+  const remainingGo = [
+    ...Array(5).fill(goFaces[0]),
+    ...Array(5).fill(goFaces[1])
+  ];
+  
+  // Quitar los dos usados
+  const idx1 = remainingGo.indexOf(firstGo);
+  if (idx1 > -1) remainingGo.splice(idx1, 1);
+  const idx2 = remainingGo.indexOf(lastGo);
+  if (idx2 > -1) remainingGo.splice(idx2, 1);
+
+  let middle = [
+    ...remainingGo,
+    ...Array(numNoGo).fill(null).map(() => noGoPool[Math.floor(Math.random() * noGoPool.length)])
+  ];
+  
+  middle = shuffleArray(middle);
+  
+  // 3. Regla Anti-Repetición (No 2 No-Go seguidos)
+  const isNoGoTag = (tag) => !goFaces.includes(tag);
+  
+  return deck;
 }
+
+
+
 
 // ─────────────────────────────────────────────────────────────
 // HOOK DE LA LÓGICA CORE V3  (sin closure/race-condition)
@@ -36,14 +67,21 @@ export function useReactionGame() {
   const [gameData, setGameData]         = useState([]);
   const [expectedFace, setExpectedFace] = useState(null);
   const [visualFeedback, setVisualFeedback] = useState(null);
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(1);
+  const [feedbackMsg, setFeedbackMsg] = useState(null); // { text: string, type: 'success' | 'error' | 'rayo' }
   const [lastMotorExecution, setLastMotorExecution] = useState(null); // { notation, motorExecutionMs }
 
   // ── Refs VIVOS: se leen en callbacks sin crear dependencias ──
-  const sequenceRef       = useRef([]);
+  const deckRef         = useRef([]);
+  const deckIdxRef      = useRef(0);
+
+
   const waitTimeoutRef    = useRef(null);
   const showTimeoutRef    = useRef(null);
   const waitTimeRandomRef = useRef(0);
   const startTimeRef      = useRef(0);
+  const inhibitionTimeoutRef = useRef(null);
 
   // Reflejo en ref de los estados que necesitan los callbacks
   const playStateRef      = useRef('idle');
@@ -53,6 +91,10 @@ export function useReactionGame() {
   const gameDataRef       = useRef([]);
   const isTurnCompleted   = useRef(false);
   const hasFirstMoveError = useRef(false);
+  const lastTurnEndTimeRef = useRef(Date.now());
+  const currentWaitTimeRef = useRef(1200); // Para telemetría persistente
+  const gameModeRef = useRef('ESTANDAR');
+
 
   // Helpers que sincronizan estado + ref a la vez
   const setPlayStateBoth = (v) => { playStateRef.current = v; setPlayState(v); };
@@ -83,83 +125,183 @@ export function useReactionGame() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
+  const getColorName = (tag) => {
+    const names = {
+      'R': 'ROJO',
+      'L': 'NARANJO',
+      'U': 'BLANCO',
+      'D': 'AMARILLO',
+      'F': 'AZUL',
+      'B': 'VERDE'
+    };
+    return names[tag] || tag;
+  };
+
   // ── Configurar turno (función central del motor) ──
-  const processNextTurn = useCallback((nextTurnIdx, currentDataSoFar) => {
-    if (nextTurnIdx >= TOTAL_TURNS) {
+
+  const processNextTurn = useCallback((nextIdx, currentDataSoFar) => {
+    if (nextIdx >= deckRef.current.length) {
       finishGame(currentDataSoFar);
       return;
     }
 
+    // ── Limpieza de estado para evitar spoilers ──
+    setExpectedFaceBoth(null);
+    setPlayStateBoth('waiting');
+
     // Limpiar timers previos SIN tocar la suscripción BLE
     clearTimeout(waitTimeoutRef.current);
     clearTimeout(showTimeoutRef.current);
+    clearTimeout(inhibitionTimeoutRef.current);
 
-    const face = sequenceRef.current[nextTurnIdx];
+    let face = deckRef.current[nextIdx];
+    deckIdxRef.current = nextIdx;
 
-    setCurrentTurnBoth(nextTurnIdx);
-    setExpectedFaceBoth(face);
-    setPlayStateBoth('waiting');
+    // ── TRAMPA DE IMPULSIVIDAD (Combo >= 4) ──
+    const isGoColor = gameModeRef.current === 'FLEXIBILIDAD' ? (face === 'U' || face === 'D') : (face === 'R' || face === 'L');
+    if (combo >= 4 && isGoColor) {
+      // Si el combo es alto y viene un GO, intentar forzar un NO-GO sorpresa
+      let trapIdx = -1;
+      for (let k = nextIdx + 1; k < deckRef.current.length; k++) {
+        const isNextGo = gameModeRef.current === 'FLEXIBILIDAD' ? (deckRef.current[k] === 'U' || deckRef.current[k] === 'D') : (deckRef.current[k] === 'R' || deckRef.current[k] === 'L');
+        if (!isNextGo) {
+          trapIdx = k;
+          break;
+        }
+      }
+      if (trapIdx !== -1) {
+        // Swap actual por trampa
+        [deckRef.current[nextIdx], deckRef.current[trapIdx]] = [deckRef.current[trapIdx], deckRef.current[nextIdx]];
+        face = deckRef.current[nextIdx];
+        console.log('⚠️ TRAMPA DE IMPULSIVIDAD: NO-GO INYECTADO POR VELOCIDAD');
+      }
+    }
+
+    setCurrentTurnBoth(nextIdx);
+
+    setExpectedFaceBoth(null); // Aseguramos reset al inicio de espera
+
     isTurnCompleted.current = false;
     hasFirstMoveError.current = false;
 
-    const randomWaitMs = Math.floor(Math.random() * 1500) + 1000;
-    waitTimeRandomRef.current = randomWaitMs;
-
-    console.log('Turno', nextTurnIdx + 1, '- Esperando', randomWaitMs, 'ms');
-
-    // ── Timer 1: waiting ──> showing_color ──
-    waitTimeoutRef.current = setTimeout(() => {
+    // ── DIFICULTAD DINÁMICA (Tiempo de espera inverso al combo) ──
+    const dynamicWaitMs = Math.max(300, 1200 - (combo * 100));
+    currentWaitTimeRef.current = dynamicWaitMs;
+    
+    inhibitionTimeoutRef.current = setTimeout(() => {
+      const isi = Date.now() - lastTurnEndTimeRef.current;
+      setExpectedFaceBoth(face); // Solo revelamos el color aquí
       setPlayStateBoth('showing_color');
       startTimeRef.current = performance.now();
-      console.log('Estímulo mostrado: Cara', face);
+      console.log('Estímulo mostrado: Cara', face, 'ISI:', isi);
 
-      // ── Timer 2: timeout de omisión ──
-      showTimeoutRef.current = setTimeout(() => {
-        if (isTurnCompleted.current) return;
-        isTurnCompleted.current = true;
+      // ── Caso NO-GO ──
+      const isNoGo = !(gameModeRef.current === 'FLEXIBILIDAD' ? (face === 'U' || face === 'D') : (face === 'R' || face === 'L'));
 
-        setLivesBoth(Math.max(0, livesRef.current - 1));
-        flashError();
+      if (isNoGo) {
 
-        const omissionRecord = {
-          // ── Campos estándar clínicos ──
-          turn: nextTurnIdx + 1,
-          expectedFace: face,
-          actualFace: null,
-          waitTimeMs: randomWaitMs,
-          reactionTimeMs: MAX_TIME_MS,
-          isCorrect: false,
-          isFalseStart: false,
-          isOmission: true,
-          firstMoveWrong: hasFirstMoveError.current,
-          gaveUp: hasFirstMoveError.current,
-          corrected: false,
-          // ── Campos nuevos nomenclatura ejecutiva ──
-          caraObjetivo: face,
-          tiempoMilisegundos: MAX_TIME_MS,
-          movimientoUsuario: null,
-          esCorrecto: false,
-        };
+        // En NO-GO, el usuario debe esperar sin moverse
+        inhibitionTimeoutRef.current = setTimeout(() => {
+          if (isTurnCompleted.current) return;
+          isTurnCompleted.current = true;
 
-        const newData = [...currentDataSoFar, omissionRecord];
-        processNextTurn(nextTurnIdx + 1, newData);
-      }, MAX_TIME_MS);
+          setVisualFeedbackBoth('success');
+          setTimeout(() => setVisualFeedbackBoth(null), 300);
 
-    }, randomWaitMs);
+          const points = 150;
+          setScore(s => s + points);
+          setCombo(c => c + 1);
+          setFeedbackMsg({ text: `¡Autocontrol! 🧠 +${points}`, type: 'success' });
+          setTimeout(() => setFeedbackMsg(null), 1000);
+
+          const successRecord = {
+            turn: nextIdx + 1,
+            expectedFace: face,
+            colorName: getColorName(face),
+            actualFace: null,
+            waitTimeMs: dynamicWaitMs,
+            isiMs: Date.now() - lastTurnEndTimeRef.current,
+            reactionTimeMs: 0,
+            isCorrect: true,
+            isFalseStart: false,
+            isOmission: false,
+            isInhibitionSuccess: true,
+            caraObjetivo: getColorName(face),
+            tiempoMilisegundos: 0,
+            movimientoUsuario: 'NONE',
+            esCorrecto: true,
+          };
+
+          lastTurnEndTimeRef.current = Date.now();
+          const newData = [...currentDataSoFar, successRecord];
+          setGameDataBoth(newData);
+
+          processNextTurn(nextIdx + 1, newData);
+        }, 1500); // 1.5s de ventana de inhibición clínica
+
+
+      } else {
+        // ── Caso GO: Timer de omisión estándar ──
+        showTimeoutRef.current = setTimeout(() => {
+          if (isTurnCompleted.current) return;
+          isTurnCompleted.current = true;
+
+          setLivesBoth(Math.max(0, livesRef.current - 1));
+          setCombo(1);
+          flashError();
+          setFeedbackMsg({ text: '¡Omisión!', type: 'error' });
+          setTimeout(() => setFeedbackMsg(null), 1000);
+
+          const omissionRecord = {
+            turn: nextIdx + 1,
+            expectedFace: face,
+            colorName: getColorName(face),
+            actualFace: null,
+            waitTimeMs: dynamicWaitMs,
+            isiMs: isi,
+            reactionTimeMs: MAX_TIME_MS,
+            isCorrect: false,
+            isFalseStart: false,
+            isOmission: true,
+            caraObjetivo: getColorName(face),
+            tiempoMilisegundos: MAX_TIME_MS,
+            movimientoUsuario: null,
+            esCorrecto: false,
+          };
+
+
+          lastTurnEndTimeRef.current = Date.now();
+          const newData = [...currentDataSoFar, omissionRecord];
+          setGameDataBoth(newData);
+          processNextTurn(nextIdx + 1, newData);
+        }, MAX_TIME_MS);
+
+
+      }
+
+    }, dynamicWaitMs);
+
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finishGame, flashError]);
 
   // ── Iniciar partida ──
-  const start = useCallback(() => {
+  const start = useCallback((mode = 'ESTANDAR') => {
     clearTimeout(waitTimeoutRef.current);
     clearTimeout(showTimeoutRef.current);
-    sequenceRef.current = generateLevels();
+    gameModeRef.current = mode;
+    const numNoGo = 3 + Math.floor(Math.random() * 5); 
+    deckRef.current = generateClinicalDeck(numNoGo, mode);
     setLivesBoth(3);
     setGameDataBoth([]);
+    lastTurnEndTimeRef.current = Date.now();
     processNextTurn(0, []);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processNextTurn]);
+
+
 
   // ── Reset ──
   const reset = useCallback(() => {
@@ -170,6 +312,9 @@ export function useReactionGame() {
     setLivesBoth(3);
     setGameDataBoth([]);
     setExpectedFaceBoth(null);
+    deckIdxRef.current = 0;
+
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -188,14 +333,19 @@ export function useReactionGame() {
       clearTimeout(waitTimeoutRef.current);
 
       setLivesBoth(Math.max(0, livesRef.current - 1));
+      setCombo(1);
       flashError();
+      setFeedbackMsg({ text: '¡Falsa Alarma!', type: 'error' });
+      setTimeout(() => setFeedbackMsg(null), 1000);
 
       const record = {
         // ── Campos estándar clínicos ──
         turn: turn + 1,
         expectedFace: face,
+        colorName: getColorName(face),
         actualFace,
-        waitTimeMs: waitTimeRandomRef.current,
+        waitTimeMs: currentWaitTimeRef.current,
+        isiMs: Date.now() - lastTurnEndTimeRef.current,
         reactionTimeMs: 0,
         isCorrect: false,
         isFalseStart: true,
@@ -204,17 +354,21 @@ export function useReactionGame() {
         gaveUp: false,
         corrected: false,
         // ── Campos nuevos nomenclatura ejecutiva ──
-        caraObjetivo: face,
+        caraObjetivo: getColorName(face),
         tiempoMilisegundos: 0,
         movimientoUsuario: actualFace,
         esCorrecto: false,
       };
 
+      lastTurnEndTimeRef.current = Date.now();
       const newData = [...gameDataRef.current, record];
       setGameDataBoth(newData);
-      processNextTurn(turn + 1, newData);
+
+      processNextTurn(deckIdxRef.current + 1, newData);
       return;
     }
+
+
 
     // RESPUESTA DURANTE ESTÍMULO
     if (phase === 'showing_color') {
@@ -222,52 +376,127 @@ export function useReactionGame() {
       // Compensar latencia de hardware (BLE RTT/2 + render lag)
       const reactionMs = Math.max(0, rawMs - (latencyOffset || 0));
 
-      if (actualFace === face) {
-        // ACIERTO
-        isTurnCompleted.current = true;
-        clearTimeout(showTimeoutRef.current);
-
         // Disparar flash de éxito visual para el AnimatedCube
         setVisualFeedbackBoth('success');
         setTimeout(() => setVisualFeedbackBoth(null), 300);
 
-        const record = {
+        // Si era un NO-GO y el usuario se movió -> ERROR POR IMPULSIVIDAD
+        const isGoColor = gameModeRef.current === 'FLEXIBILIDAD' 
+          ? (face === 'U' || face === 'D')
+          : (face === 'R' || face === 'L');
+
+        if (!isGoColor) {
+          isTurnCompleted.current = true;
+          clearTimeout(inhibitionTimeoutRef.current);
+
+          const rawMs = Math.round(performance.now() - startTimeRef.current);
+
+          const reactionMs = Math.max(0, rawMs - (latencyOffset || 0));
+
+          setCombo(1);
+          flashError();
+          setFeedbackMsg({ text: '¡Impulsividad!', type: 'error' });
+          setTimeout(() => setFeedbackMsg(null), 1000);
+
+          const errorRecord = {
+            turn: turn + 1,
+            expectedFace: face,
+            colorName: getColorName(face),
+            actualFace,
+            waitTimeMs: dynamicWaitMs,
+            isiMs: Date.now() - lastTurnEndTimeRef.current,
+            reactionTimeMs: reactionMs,
+            isCorrect: false,
+            isImpulsivityError: true,
+            caraObjetivo: getColorName(face),
+            tiempoMilisegundos: reactionMs,
+            movimientoUsuario: actualFace,
+            esCorrecto: false,
+          };
+
+          lastTurnEndTimeRef.current = Date.now();
+          const newData = [...gameDataRef.current, errorRecord];
+          setGameDataBoth(newData);
+
+          processNextTurn(deckIdxRef.current + 1, newData);
+          return;
+        }
+
+
+
+        if (actualFace === face) {
+          // ACIERTO (GO)
+          isTurnCompleted.current = true;
+          clearTimeout(showTimeoutRef.current);
+
+          // Cálculo de puntuación y feedback dinámico
+          let points = 100;
+          let text = '¡Bien! 👍';
+          let type = 'success';
+          
+          if (reactionMs < 600) {
+            points = 200;
+            text = '¡Rayo! ⚡';
+            type = 'rayo';
+          }
+
+          const earned = points * combo;
+          setScore(s => s + earned);
+          setCombo(c => c + 1);
+          setFeedbackMsg({ text: `${text} +${earned}`, type });
+          setTimeout(() => setFeedbackMsg(null), 1000);
+
+          setVisualFeedbackBoth('success');
+          setTimeout(() => setVisualFeedbackBoth(null), 300);
+
+          const record = {
+            // ── Campos estándar clínicos ──
+            turn: turn + 1,
+            expectedFace: face,
+            colorName: getColorName(face),
+            actualFace,
+            waitTimeMs: dynamicWaitMs,
+            isiMs: Date.now() - lastTurnEndTimeRef.current,
+            rawReactionTimeMs: rawMs,
+            reactionTimeMs: reactionMs,
+            latencyDiscount: (latencyOffset || 0),
+            isCorrect: true,
+            isFalseStart: false,
+            isOmission: false,
+            firstMoveWrong: hasFirstMoveError.current,
+            gaveUp: false,
+            corrected: hasFirstMoveError.current,
+            // ── Campos nuevos nomenclatura ejecutiva ──
+            caraObjetivo: getColorName(face),
+            tiempoMilisegundos: reactionMs,
+            movimientoUsuario: actualFace,
+            esCorrecto: true,
+          };
+
+          lastTurnEndTimeRef.current = Date.now();
+          const newData = [...gameDataRef.current, record];
+          setGameDataBoth(newData);
+
+          processNextTurn(deckIdxRef.current + 1, newData);
+        } else {
+
+
+          // EQUIVOCACIÓN (GO)
+          hasFirstMoveError.current = true;
+          setCombo(1);
+          setLivesBoth(Math.max(0, livesRef.current - 1));
+          flashError();
+          setFeedbackMsg({ text: '¡Lado equivocado!', type: 'error' });
+          setTimeout(() => setFeedbackMsg(null), 1000);
+
+          const errorRecord = {
           // ── Campos estándar clínicos ──
           turn: turn + 1,
           expectedFace: face,
+          colorName: getColorName(face),
           actualFace,
-          waitTimeMs: waitTimeRandomRef.current,
-          rawReactionTimeMs: rawMs,
-          reactionTimeMs: reactionMs,
-          latencyDiscount: (latencyOffset || 0),
-          isCorrect: true,
-          isFalseStart: false,
-          isOmission: false,
-          firstMoveWrong: hasFirstMoveError.current,
-          gaveUp: false,
-          corrected: hasFirstMoveError.current,
-          // ── Campos nuevos nomenclatura ejecutiva ──
-          caraObjetivo: face,
-          tiempoMilisegundos: reactionMs,
-          movimientoUsuario: actualFace,
-          esCorrecto: true,
-        };
-
-        const newData = [...gameDataRef.current, record];
-        setGameDataBoth(newData);
-        processNextTurn(turn + 1, newData);
-      } else {
-        // EQUIVOCACIÓN: Se guarda el registro del error físico inmediatamente 
-        hasFirstMoveError.current = true;
-        setLivesBoth(Math.max(0, livesRef.current - 1));
-        flashError();
-
-        const errorRecord = {
-          // ── Campos estándar clínicos ──
-          turn: turn + 1,
-          expectedFace: face,
-          actualFace,
-          waitTimeMs: waitTimeRandomRef.current,
+          waitTimeMs: dynamicWaitMs,
+          isiMs: Date.now() - lastTurnEndTimeRef.current,
           rawReactionTimeMs: rawMs,
           reactionTimeMs: reactionMs,
           latencyDiscount: (latencyOffset || 0),
@@ -278,14 +507,16 @@ export function useReactionGame() {
           gaveUp: false,
           corrected: false,
           // ── Campos nuevos nomenclatura ejecutiva ──
-          caraObjetivo: face,
+          caraObjetivo: getColorName(face),
           tiempoMilisegundos: reactionMs,
           movimientoUsuario: actualFace,
           esCorrecto: false,
         };
 
+        lastTurnEndTimeRef.current = Date.now();
         const newData = [...gameDataRef.current, errorRecord];
         setGameDataBoth(newData);
+
         // El turno NO se corta aquí; el usuario aún debe corregir.
       }
     }
@@ -331,12 +562,17 @@ export function useReactionGame() {
 
   return {
     playState,
-    currentTurn,
-    totalTurns: TOTAL_TURNS,
+    currentTurn: deckIdxRef.current,
+    totalTurns: deckRef.current.length,
+
+
     lives,
     expectedFace,
     gameData,
     visualFeedback,
+    score,
+    combo,
+    feedbackMsg,
     start,
     reset,
     registerMove,

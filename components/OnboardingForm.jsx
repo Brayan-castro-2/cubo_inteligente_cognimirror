@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBluetoothCube } from '../contexts/BluetoothContext';
+import { useCubeState } from '../contexts/CubeStateContext';
+import Cube3DViewer from './Cube3DViewer';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUDIO ENGINE — Web Audio API "tick" tecnológico
@@ -176,6 +178,7 @@ function CircularDial({ value, min, max, color, trackColor, label, formatVal, an
 // ─────────────────────────────────────────────────────────────────────────────
 export default function OnboardingForm({ onComplete, playerName }) {
   const { subscribeToMoves } = useBluetoothCube();
+  const { cubeRotation: globalRotation } = useCubeState();
 
   const [stepIdx, setStepIdx] = useState(0);
   const [values, setValues] = useState({
@@ -183,9 +186,17 @@ export default function OnboardingForm({ onComplete, playerName }) {
     nivelAnimo: 5,
     nivelRuido: 5,
   });
+  
   const [animating, setAnimating] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [entering, setEntering] = useState(false);
+
+  // Estados visuales de Confirmación L2
+  const [flash, setFlash] = useState(null);
+  const [pulse, setPulse] = useState(false);
+  
+  // Historial de movimientos para parseo L2
+  const moveHistory = useRef([]);
 
   const pregunta = PREGUNTAS[stepIdx];
 
@@ -207,7 +218,6 @@ export default function OnboardingForm({ onComplete, playerName }) {
         setTimeout(() => setEntering(false), 300);
       }, 250);
     } else {
-      // Última pregunta → completar
       playConfirm();
       setExiting(true);
       setTimeout(() => {
@@ -223,73 +233,94 @@ export default function OnboardingForm({ onComplete, playerName }) {
   }, [stepIdx, values, onComplete, playerName]);
 
   // ── Lógica de movimiento del cubo ─────────────────────────────
-  // handleCubeMove es la función conectada al listener BLE
   const handleCubeMove = useCallback((movimiento) => {
-    const isConfirm = movimiento === 'L' || movimiento === "L'"; // Cara Roja
-    if (isConfirm) {
-      handleNext();
+    if (exiting || entering) return;
+    
+    const now = Date.now();
+    moveHistory.current.push({ m: movimiento, t: now });
+    // Limpiamos memoria de movimientos de hace más de 1.2 segundos
+    moveHistory.current = moveHistory.current.filter(x => now - x.t < 1200);
+
+    // Detección Crítica L2 (Giro doble Cara Roja)
+    const lMoves = moveHistory.current.filter(x => x.m === 'L').length;
+    const lPrimeMoves = moveHistory.current.filter(x => x.m === "L'").length;
+    const isL2 = movimiento === 'L2' || lMoves >= 2 || lPrimeMoves >= 2;
+
+    if (isL2) {
+      moveHistory.current = []; // Flush
+      setFlash('green');
+      setPulse(true);
+      // Animación de 400ms antes de avanzar
+      setTimeout(() => {
+        setPulse(false);
+        setFlash(null);
+        handleNext();
+      }, 400);
       return;
     }
 
     const p = PREGUNTAS[stepIdx];
     if (!p) return;
 
-    const isUp = movimiento === 'U' || movimiento === 'R';
-    const isDown = movimiento === "U'" || movimiento === "R'";
-    if (!isUp && !isDown) return;
+    // Dial de Precisión (Solo Cara Naranja - R)
+    if (movimiento === 'R') {
+      setValues(prev => {
+        const current = prev[p.key];
+        const next = Math.min(p.max, current + 1);
+        if (next !== current) { playTick('up'); triggerAnim(); }
+        return { ...prev, [p.key]: next };
+      });
+    } else if (movimiento === "R'") {
+      setValues(prev => {
+        const current = prev[p.key];
+        const next = Math.max(p.min, current - 1);
+        if (next !== current) { playTick('down'); triggerAnim(); }
+        return { ...prev, [p.key]: next };
+      });
+    }
+  }, [stepIdx, exiting, entering, triggerAnim, handleNext]);
 
-    setValues(prev => {
-      const current = prev[p.key];
-      const next = isUp
-        ? Math.min(p.max, current + 1)
-        : Math.max(p.min, current - 1);
-      if (next === current) return prev;
-      playTick(isUp ? 'up' : 'down');
-      triggerAnim();
-      return { ...prev, [p.key]: next };
-    });
-  }, [stepIdx, triggerAnim, handleNext]);
-
-  // ── Suscripción al contexto BLE global ─────────────────────────
+  // ── Suscripción BLE ─────────────────────────
   useEffect(() => {
     const unsub = subscribeToMoves(handleCubeMove);
     return unsub;
   }, [subscribeToMoves, handleCubeMove]);
 
-  // ── Atajos de teclado (para desarrollo/demo) ───────────────────
+  // Atajos teclado interactivo
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') handleCubeMove('U');
-      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') handleCubeMove("U'");
-      if (e.key === 'Enter') handleCubeMove('L');
+      if (e.key === 'ArrowUp') handleCubeMove('R');
+      if (e.key === 'ArrowDown') handleCubeMove("R'");
+      if (e.key === 'Enter') handleCubeMove('L2');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [handleCubeMove]);
 
   const levelText = pregunta.levels[pregunta.levelFn(values[pregunta.key])];
-  const isLast = stepIdx === PREGUNTAS.length - 1;
 
   return (
-    <div className="min-h-screen bg-[#07080f] flex flex-col items-center justify-center relative overflow-hidden font-sans px-4">
-
-      {/* Glow ambiental */}
+    <div className="h-screen w-full bg-[#07080f] flex flex-col items-center justify-center relative overflow-hidden font-sans">
+      
+      {/* Background Ambiental Dinámico */}
       <div
         className="absolute inset-0 pointer-events-none transition-all duration-700"
         style={{
-          background: `radial-gradient(ellipse at 50% 40%, ${pregunta.color}18 0%, transparent 65%)`,
+          background: flash === 'green' 
+            ? 'radial-gradient(circle at center, rgba(34,197,94,0.3) 0%, transparent 80%)'
+            : `radial-gradient(ellipse at 50% 50%, ${pregunta.color}15 0%, transparent 70%)`,
         }}
       />
 
-      {/* Progress dots */}
-      <div className="absolute top-8 flex gap-2 z-10">
+      {/* Progress */}
+      <div className="absolute top-6 flex gap-2 z-10 w-full justify-center">
         {PREGUNTAS.map((p, i) => (
           <div
             key={i}
             className="rounded-full transition-all duration-300"
             style={{
-              width: i === stepIdx ? 28 : 8,
-              height: 8,
+              width: i === stepIdx ? 32 : 8,
+              height: 6,
               background: i <= stepIdx ? pregunta.color : '#1e2030',
               opacity: i < stepIdx ? 0.5 : 1,
             }}
@@ -297,119 +328,94 @@ export default function OnboardingForm({ onComplete, playerName }) {
         ))}
       </div>
 
-      {/* Header */}
-      <div className="absolute top-8 right-6 text-xs font-black uppercase tracking-widest text-white/20">
-        {stepIdx + 1} / {PREGUNTAS.length}
-      </div>
-
-      {/* Contenido principal */}
       <div
-        className="flex flex-col items-center gap-6 w-full max-w-sm z-10"
+        className="flex flex-col items-center w-full max-w-4xl z-10 mt-4 px-4"
         style={{
           transition: 'opacity 0.25s ease, transform 0.25s ease',
           opacity: exiting || entering ? 0 : 1,
-          transform: exiting ? 'translateX(-30px)' : entering ? 'translateX(30px)' : 'translateX(0)',
+          transform: exiting ? 'scale(0.95)' : entering ? 'scale(1.05)' : 'scale(1)',
         }}
       >
-        {/* Ícono y título */}
-        <div className="flex flex-col items-center gap-2 text-center">
-          <span className="text-5xl" style={{ filter: `drop-shadow(0 0 20px ${pregunta.color}80)` }}>
+        {/* Cabecera Textual */}
+        <div className="flex flex-col items-center gap-1 text-center mb-6">
+          <span className="text-4xl" style={{ filter: `drop-shadow(0 0 15px ${pregunta.color}80)` }}>
             {pregunta.icon}
           </span>
-          <h2 className="text-2xl font-black text-white tracking-tight">{pregunta.label}</h2>
-          <p className="text-sm text-white/40 max-w-[260px] leading-relaxed">{pregunta.sublabel}</p>
+          <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">{pregunta.label}</h2>
+          <p className="text-sm text-white/50 max-w-sm leading-relaxed">{pregunta.sublabel}</p>
         </div>
 
-        {/* Dial circular */}
-        <div className="relative">
-          <CircularDial
-            value={values[pregunta.key]}
-            min={pregunta.min}
-            max={pregunta.max}
-            color={pregunta.color}
-            trackColor={pregunta.trackColor}
-            label={pregunta.unit}
-            formatVal={pregunta.formatVal}
-            animating={animating}
-          />
-          {/* Etiqueta semántica bajo el dial */}
-          <div
-            className="absolute -bottom-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest whitespace-nowrap"
-            style={{ background: `${pregunta.color}20`, color: pregunta.color, border: `1px solid ${pregunta.color}40` }}
-          >
-            {levelText}
-          </div>
-        </div>
-
-        {/* Controles manuales (fallback visual) */}
-        <div className="flex items-center gap-6 mt-4">
-          <button
-            onClick={() => handleCubeMove("U'")}
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black transition-all active:scale-90"
-            style={{
-              background: `${pregunta.color}15`,
-              border: `1px solid ${pregunta.color}30`,
-              color: pregunta.color,
-            }}
-          >
-            −
-          </button>
-
-          {/* Instruccion BLE */}
-          <div className="flex flex-col items-center gap-1 text-center">
-            <p className="text-[10px] uppercase tracking-widest font-black text-white/20">Gira el cubo</p>
-            <div className="flex gap-1">
-              {['U', 'U\'', 'R', 'R\''].map(m => (
-                <span
-                  key={m}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[9px] font-black"
-                  style={{ background: `${pregunta.color}15`, color: `${pregunta.color}80` }}
-                >
-                  {m}
-                </span>
-              ))}
+        {/* ── CORE: LAYOUT HORIZONTAL EN DESKTOP, VERTICAL EN MOBILE ── */}
+        <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16 w-full">
+          
+          {/* BLOQUE IZQUIERDO: EL DIAL */}
+          <div className="flex flex-col items-center relative">
+            <CircularDial
+              value={values[pregunta.key]}
+              min={pregunta.min}
+              max={pregunta.max}
+              color={pregunta.color}
+              trackColor={pregunta.trackColor}
+              label={pregunta.unit}
+              formatVal={pregunta.formatVal}
+              animating={animating}
+            />
+            <div
+              className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap"
+              style={{ background: `${pregunta.color}20`, color: pregunta.color, border: `1px solid ${pregunta.color}40` }}
+            >
+              {levelText}
             </div>
           </div>
 
-          <button
-            onClick={() => handleCubeMove('U')}
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black transition-all active:scale-90"
-            style={{
-              background: `${pregunta.color}15`,
-              border: `1px solid ${pregunta.color}30`,
-              color: pregunta.color,
-            }}
-          >
-            +
-          </button>
+          {/* BLOQUE DERECHO: DIGITAL TWIN Y HUD BURBUJAS */}
+          <div className="flex flex-col items-center mt-6 md:mt-0">
+            
+            {/* El Cubo Virtual en el Centro Estratégico */}
+            <div 
+              className="rounded-3xl border p-2 relative shadow-2xl transition-all duration-300"
+              style={{ 
+                transform: pulse ? 'scale(1.1)' : 'scale(1)', 
+                borderColor: flash === 'green' ? '#22c55e' : 'rgba(255,255,255,0.05)',
+                background: flash === 'green' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.02)',
+                boxShadow: flash === 'green' ? '0 0 80px rgba(34,197,94,0.3)' : '0 10px 30px rgba(0,0,0,0.5)'
+              }}
+            >
+              <Cube3DViewer size={260} status="gyro_active" targetRotation={globalRotation} />
+            </div>
+
+            {/* Burbujas de Instrucción Rediseñadas (Debajo del Cubo) */}
+            <div className="flex items-stretch justify-center gap-3 mt-5 w-full max-w-[340px]">
+               {/* Burbuja Izquierda (Confirmar) */}
+               <div className="flex-1 bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
+                 <span className="text-[11px] font-black tracking-widest text-red-500 mb-1">Mano Izquierda</span>
+                 <span className="text-white text-[10px] text-center font-bold uppercase" style={{textShadow: '0 0 10px rgba(255,0,0,0.5)'}}>
+                   L2: CONFIRMAR<br/>(Giro Doble)
+                 </span>
+               </div>
+               
+               {/* Burbuja Derecha (Ajustar) */}
+               <div className="flex-1 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-50" />
+                 <span className="text-[11px] font-black tracking-widest text-orange-500 mb-1">Mano Derecha</span>
+                 <span className="text-white/80 text-[10px] text-center uppercase font-bold">
+                   R: Subir<br/>R': Bajar
+                 </span>
+               </div>
+            </div>
+
+          </div>
+
         </div>
 
-        {/* Min / Max labels */}
-        <div className="flex justify-between w-full text-[10px] font-black uppercase tracking-widest text-white/20 px-4">
-          <span>{pregunta.min === 0 ? '0 h' : pregunta.min + '/10'}</span>
-          <span>{pregunta.formatVal(pregunta.max)}</span>
-        </div>
-
-        {/* Botón principal (Clickeable con mouse) */}
+        {/* Botón Fallback Mouse (Discreto) */}
         <button
           onClick={handleNext}
-          className="w-full mt-2 py-5 rounded-2xl font-black text-lg tracking-wide transition-all duration-200 active:scale-95"
-          style={{
-            background: `linear-gradient(135deg, ${pregunta.color}, ${pregunta.color}bb)`,
-            color: '#07080f',
-            boxShadow: `0 0 40px ${pregunta.color}50`,
-          }}
+          className="mt-10 px-8 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 text-white/30 border border-white/10 hover:bg-white/5"
         >
-          {isLast ? '🚀 Iniciar Prueba' : 'Siguiente →'}
+          {stepIdx === PREGUNTAS.length - 1 ? 'Iniciar Manual' : 'Siguiente Manual'}
         </button>
-
-        {/* Footer de instrucción reubicado para evitar traslape */}
-        <div className="w-full text-center mt-4">
-          <p className="text-[10px] text-white/40 uppercase tracking-widest font-black leading-relaxed">
-            Ajusta con <span style={{color: pregunta.color}}>U</span> o <span style={{color: pregunta.color}}>R</span> <br/>
-            Y Gira la cara <span className="text-red-400">ROJA (L)</span> para Avanzar
-          </p>
-        </div>
 
       </div>
     </div>

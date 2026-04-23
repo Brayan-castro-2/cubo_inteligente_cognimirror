@@ -7,3 +7,37 @@
     animation: spin 8s linear infinite;
   }
 }
+
+@keyframes glowing-border {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-glowing-border {
+  background-size: 200% 200%;
+  animation: glowing-border 3s linear infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.8); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes inspeccionInicial {
+  0% { transform: rotateX(45deg) rotateY(0deg); }    /* Inicio: Mirando Amarillo */
+  25% { transform: rotateX(-45deg) rotateY(0deg); }  /* Baja: Muestra Blanco */
+  50% { transform: rotateX(0deg) rotateY(45deg); }   /* Giro: Muestra Naranjo */
+  75% { transform: rotateX(0deg) rotateY(-45deg); }  /* Giro: Muestra Rojo */
+  100% { transform: rotateX(-28deg) rotateY(0deg); } /* Final: Azul frente + Blanco arriba */
+}
+
+.cubo-animado {
+  animation: inspeccionInicial 4s ease-in-out forwards;
+  transform-style: preserve-3d;
+  will-change: transform;
+}

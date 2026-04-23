@@ -174,10 +174,10 @@ function StepHistory({ onBack, onOpenReport }) {
             >
               <div>
                 <p className="text-white font-bold text-lg">{record.playerName}</p>
-                <p className="text-white/40 text-xs">{new Date(record.date).toLocaleDateString()} · {record.metrics.dominance}</p>
+                <p className="text-white/40 text-xs">{new Date(record.date).toLocaleDateString()} · {record.metrics.dominance || 'Test v2'}</p>
               </div>
               <div className="text-right">
-                <p className="text-purple-400 font-black text-xl">{record.metrics.averageReactionTime} ms</p>
+                <p className="text-purple-400 font-black text-xl">{record.metrics.averageReactionTime || Math.round((record.metrics.tiempo_promedio_por_mano?.L + record.metrics.tiempo_promedio_por_mano?.R) / 2) || 0} ms</p>
                 <p className="text-[10px] text-white/20 uppercase tracking-widest font-black group-hover:text-white/60 transition-colors">Ver Detalles →</p>
               </div>
             </div>
@@ -192,187 +192,9 @@ function StepHistory({ onBack, onOpenReport }) {
   );
 }
 
-// ── ESTADO 2: CALIBRACIÓN ───────────────────────────────────
-function StepCalibration({ onNext }) {
-  const { subscribeToGyro } = useBluetoothCube();
-  const [gyroData, setGyroData] = useState(null);
-
-  useEffect(() => {
-    const unsub = subscribeToGyro((data) => {
-      setGyroData(data);
-    });
-    return () => unsub();
-  }, [subscribeToGyro]);
-
-  // Coordenadas de rotación objetivo para Three.js:
-  // Blanco arriba (Y+), Azul al frente (Z-)
-  // Ajusta estos valores según tu sistema de coordenadas en Cube3D
-  const calibrationRotation = { x: 0, y: 0, z: 0 }; // posición estándar: blanco arriba, azul al frente
-
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-8 px-6 text-center">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[500px] h-[300px] rounded-full bg-cyan-500/10 blur-[100px]" />
-      </div>
-
-      {/* Indicador de paso */}
-      <StepIndicator current={2} total={4} />
-
-      <div className="relative flex flex-col items-center gap-2">
-        <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-          Calibración Física
-        </h2>
-        <p className="text-white/60 text-sm sm:text-lg">
-          Para empezar, sostén tu cubo{' '}
-          <span className="text-cyan-400 font-semibold">exactamente así:</span>
-        </p>
-      </div>
-
-      {/* Cubo 3D Real (Three.js) */}
-      <div className="w-48 h-48 sm:w-64 sm:h-64 relative bg-white/5 rounded-[3rem] border border-white/10 shadow-2xl overflow-hidden">
-        <Cube3DViewer
-          targetRotation={gyroData || calibrationRotation}
-          status={gyroData ? 'gyro_active' : 'teaching'}
-          className="scale-110"
-        />
-      </div>
-
-      {/* Instrucciones de orientación */}
-      <div className="flex gap-2 sm:gap-4">
-        <OrientationBadge
-          emoji="⬆️"
-          label="C. Blanca"
-          sublabel="al techo"
-          color="bg-white/10 border-white/20"
-        />
-        <OrientationBadge
-          emoji="👁️"
-          label="C. Azul"
-          sublabel="a ti"
-          color="bg-blue-500/10 border-blue-400/30"
-        />
-      </div>
-
-      <button
-        onClick={onNext}
-        className="
-          px-10 py-4 rounded-2xl font-bold text-lg text-white
-          bg-gradient-to-r from-cyan-600 to-blue-600
-          shadow-[0_0_30px_rgba(6,182,212,0.3)]
-          hover:shadow-[0_0_50px_rgba(6,182,212,0.5)]
-          hover:scale-105 active:scale-95
-          transition-all duration-200
-        "
-      >
-        Ya lo tengo así ✅
-      </button>
-    </div>
-  );
-}
 
 
-// ── ESTADO 4: CUENTA REGRESIVA ──────────────────────────────
-function StepReadyToPlay({ onGameStart }) {
-  const [count, setCount] = useState(3);
-  const [started, setStarted] = useState(false);
-  const intervalRef = useRef(null);
 
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      setCount((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current);
-          setStarted(true);
-          // Pequeño delay para que el usuario vea "¡YA!" antes de que arranque el juego
-          setTimeout(() => onGameStart(), 600);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(intervalRef.current);
-  }, [onGameStart]);
-
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-8 px-6 text-center">
-      {/* Pulso de fondo */}
-      <div
-        className={`
-          absolute inset-0 flex items-center justify-center pointer-events-none
-          transition-opacity duration-300
-          ${started ? 'opacity-100' : 'opacity-0'}
-        `}
-      >
-        <div className="w-[700px] h-[700px] rounded-full bg-green-500/20 animate-ping" />
-      </div>
-
-      <p className="text-white/40 uppercase tracking-[0.4em] text-sm font-semibold">
-        Preparado...
-      </p>
-
-      {/* Número de cuenta regresiva */}
-      <div
-        key={count} // Re-monta para re-disparar la animación en cada cambio
-        className={`
-          font-black leading-none select-none
-          transition-all duration-100
-          ${started
-            ? 'text-green-400 text-9xl drop-shadow-[0_0_60px_rgba(74,222,128,0.9)] scale-125'
-            : 'text-white text-[10rem] drop-shadow-[0_0_40px_rgba(255,255,255,0.4)] scale-100'
-          }
-          animate-pop-in
-        `}
-      >
-        {started ? '¡YA!' : count}
-      </div>
-
-      <p className="text-white/30 text-sm">
-        {started ? 'Iniciando...' : 'Prepara tus dedos sobre el cubo'}
-      </p>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Componentes de apoyo
-// ─────────────────────────────────────────────────────────────
-
-function StepIndicator({ current, total }) {
-  return (
-    <div className="flex items-center gap-2">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className={`
-            rounded-full transition-all duration-300
-            ${i + 1 === current
-              ? 'w-8 h-2 bg-white'
-              : i + 1 < current
-              ? 'w-2 h-2 bg-white/40'
-              : 'w-2 h-2 bg-white/15'
-            }
-          `}
-        />
-      ))}
-    </div>
-  );
-}
-
-function OrientationBadge({ emoji, label, sublabel, color }) {
-  return (
-    <div
-      className={`
-        flex flex-col items-center gap-1 px-5 py-4 rounded-xl border
-        backdrop-blur-sm ${color}
-      `}
-    >
-      <span className="text-3xl">{emoji}</span>
-      <span className="text-white font-bold text-sm">{label}</span>
-      <span className="text-white/50 text-xs">{sublabel}</span>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────
 // COMPONENTE PRINCIPAL — ReactionGameView
@@ -391,36 +213,31 @@ export default function ReactionGameView({ onExit, onGameReady }) {
   const [playerName, setPlayerName] = useState('');
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [sessionMeta, setSessionMeta] = useState(null);
-
-  function startGameLoop() {
-    setStep('playing');
-    if (typeof onGameReady === 'function') onGameReady();
-  }
-
-  function handleOnboardingComplete(meta) {
-    setSessionMeta(meta);
-    setStep('ready_to_play');
-  }
+  const [sessionStartTime, setSessionStartTime] = useState(null);
 
   function handleOpenReport(record) {
-    setSelectedRecord(record);
+    const usersDB = JSON.parse(localStorage.getItem('cogniMirror_Users') || '{}');
+    const pName = record.playerName || 'Anónimo';
+    const userHistory = usersDB[pName]?.history || [];
+    setSelectedRecord({ ...record, userHistory });
     setStep('view_report');
   }
 
   return (
     <div className="relative min-h-screen bg-[#07080f] overflow-hidden font-sans">
-      {step !== 'ready_to_play' && (
-        <button
-          onClick={step === 'view_report' ? () => setStep('history') : onExit}
-          className="absolute top-5 left-5 z-50 flex items-center gap-2 px-3 py-2 rounded-lg text-white/40 hover:text-white/80 text-sm hover:bg-white/5 transition-all duration-150 no-print"
-        >
-          ← Volver
-        </button>
-      )}
+      <button
+        onClick={step === 'view_report' ? () => setStep('history') : onExit}
+        className="absolute top-5 left-5 z-50 flex items-center gap-2 px-3 py-2 rounded-lg text-white/40 hover:text-white/80 text-sm hover:bg-white/5 transition-all duration-150 no-print"
+      >
+        ← Volver
+      </button>
 
       {step === 'menu' && (
         <StepMenu 
-          onNext={() => setStep('calibration')} 
+          onNext={() => {
+            setSessionStartTime(Date.now());
+            setStep('tutorial');
+          }} 
           onHistory={() => setStep('history')}
           playerName={playerName} 
           setPlayerName={setPlayerName} 
@@ -433,36 +250,39 @@ export default function ReactionGameView({ onExit, onGameReady }) {
 
       {step === 'view_report' && selectedRecord && (
         <ExecutiveReport
-          playerName={selectedRecord.playerName}
-          date={selectedRecord.date}
-          rawTurnsData={selectedRecord.rawTurnsData}
-          latencyOffset={0}
+          record={selectedRecord}
           onRestart={() => setStep('menu')}
           onExit={() => setStep('history')}
-          recordId={selectedRecord.id}
         />
       )}
 
-      {step === 'calibration' && (
-        <StepCalibration onNext={() => setStep('tutorial')} />
-      )}
       {step === 'tutorial' && (
-        <TutorialPhase onCompleteTutorial={() => setStep('onboarding')} />
+        <TutorialPhase onCompleteTutorial={() => setStep('questions')} />
       )}
-      {step === 'onboarding' && (
-        <OnboardingForm
-          playerName={playerName}
-          onComplete={handleOnboardingComplete}
+      {step === 'questions' && (
+        <OnboardingForm 
+          playerName={playerName} 
+          onComplete={(data) => { 
+            setSessionMeta(data); 
+            setStep('playing'); 
+          }} 
         />
-      )}
-      {step === 'ready_to_play' && (
-        <StepReadyToPlay onGameStart={startGameLoop} />
       )}
       {step === 'playing' && (
         <ReactionGame
-          onExit={() => { setStep('menu'); setPlayerName(''); setSessionMeta(null); }}
+          onExit={(record, userHistory) => { 
+            if (record) {
+              setSelectedRecord({ ...record, userHistory });
+              setStep('view_report');
+            } else {
+              setStep('menu'); 
+              setPlayerName(''); 
+              setSessionMeta(null);
+            }
+          }}
           playerName={playerName}
           sessionMeta={sessionMeta}
+          sessionStartTime={sessionStartTime}
         />
       )}
     </div>

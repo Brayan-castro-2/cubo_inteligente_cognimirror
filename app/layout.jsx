@@ -1,6 +1,8 @@
 import './globals.css';
 import Script from 'next/script';
 import { BluetoothProvider } from '../contexts/BluetoothContext';
+import { CubeStateProvider } from '../contexts/CubeStateContext';
+import { JoicubeProvider } from '../contexts/JoicubeContext';
 
 export const metadata = {
   title: 'CogniMirror Cube',
@@ -21,7 +23,11 @@ export default function RootLayout({ children }) {
           strategy="beforeInteractive"
         />
         <BluetoothProvider>
-          {children}
+          <CubeStateProvider>
+            <JoicubeProvider>
+              {children}
+            </JoicubeProvider>
+          </CubeStateProvider>
         </BluetoothProvider>
       </body>
     </html>

@@ -1,0 +1,204 @@
+{
+  "Vector Parkour": {
+    "U": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.12,
+      "cancel_keys": []
+    },
+    "U_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.12,
+      "cancel_keys": []
+    },
+    "D": {
+      "key": "down",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "up"
+      ]
+    },
+    "D_prime": {
+      "key": "down",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "up"
+      ]
+    },
+    "R": {
+      "key": "right",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "left"
+      ]
+    },
+    "R_prime": {
+      "key": "right",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "left"
+      ]
+    },
+    "L": {
+      "key": "left",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "right"
+      ]
+    },
+    "L_prime": {
+      "key": "left",
+      "action_type": "toggle",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "right"
+      ]
+    }
+  },
+  "Geometry Dash": {
+    "U": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.05,
+      "cancel_keys": []
+    },
+    "U_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.05,
+      "cancel_keys": []
+    },
+    "D": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "D_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "F": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "F_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "B": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "B_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": []
+    },
+    "L": {
+      "key": "space",
+      "action_type": "pulse",
+      "press_length": 0.05,
+      "cancel_keys": []
+    },
+    "L_prime": {
+      "key": "space",
+      "action_type": "pulse",
+      "press_length": 0.05,
+      "cancel_keys": []
+    },
+    "R": {
+      "key": "space",
+      "action_type": "retap",
+      "press_length": 0.05,
+      "cancel_keys": []
+    },
+    "R_prime": {
+      "key": "space",
+      "action_type": "retap",
+      "press_length": 0.05,
+      "cancel_keys": []
+    }
+  },
+  "Subway Surfers": {
+    "U": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "down"
+      ]
+    },
+    "U_prime": {
+      "key": "up",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "down"
+      ]
+    },
+    "D": {
+      "key": "down",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "up"
+      ]
+    },
+    "D_prime": {
+      "key": "down",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "up"
+      ]
+    },
+    "L": {
+      "key": "left",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "right"
+      ]
+    },
+    "L_prime": {
+      "key": "left",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "right"
+      ]
+    },
+    "R": {
+      "key": "right",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "left"
+      ]
+    },
+    "R_prime": {
+      "key": "right",
+      "action_type": "pulse",
+      "press_length": 0.15,
+      "cancel_keys": [
+        "left"
+      ]
+    }
+  }
+}

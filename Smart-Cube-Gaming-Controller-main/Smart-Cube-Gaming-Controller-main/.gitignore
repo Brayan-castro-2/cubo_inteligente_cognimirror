@@ -1,0 +1,6 @@
+# Don't track these files
+
+*.log
+*.bat
+_gitignore
+__pycache__

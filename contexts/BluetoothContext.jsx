@@ -33,6 +33,7 @@ export function BluetoothProvider({ children }) {
   // Refs para evitar el problema de 'stale closure' en el listener de Bluetooth
   const gyroConfigRef = useRef(gyroConfig);
   const gyroOffsetRef = useRef(gyroOffset);
+  const gyroLastUpdateRef = useRef(0);
 
   useEffect(() => { gyroConfigRef.current = gyroConfig; }, [gyroConfig]);
   useEffect(() => { gyroOffsetRef.current = gyroOffset; }, [gyroOffset]);
@@ -49,16 +50,14 @@ export function BluetoothProvider({ children }) {
 
   // Almacena callbacks de los componentes hijos que quieren enterarse de los movimientos
   const moveListenersRef = useRef(new Set());
-  const lastPacketFingerprint = useRef(""); // Para deduplicación por huella digital bit-a-bit
+  // Deduplicación temporal: descarta el mismo paquete si llega en < 40ms (evita retransmisiones BLE)
+  // Pero permite paquetes idénticos separados por > 40ms (ráfagas U+U legítimas)
+  const lastPacketFingerprint = useRef("");
+  const lastPacketTimeRef = useRef(0);
   const gyroListenersRef = useRef(new Set());
-  const moveCompleteListenersRef = useRef(new Set()); // Paquete 2: ejecución motora completa
-
-  // ─── Protocolo de Doble Paquete del Rubik's Connected ───────────────────
-  // Paquete 1: cara comienza a girar (primer umbral de rotación detectado)
-  // Paquete 2: cara encaja en posición final (segundo umbral)
-  // Delta = Tiempo de Ejecución Motora (TEM) → métrica clínica nueva
-  const pendingMoveRef = useRef({ moveId: -1, notation: null, ts: 0 });
-  const BLE_MOTOR_WINDOW_MS = 120; // Ajustado: Ventana justa para cazar el encaje mecánico sin comerse giros rápidos consecutivos (speedcubing)
+  const moveCompleteListenersRef = useRef(new Set());
+  // Feed de movimientos en tiempo real: emite { notation, timestamp, source } para la pantalla de config
+  const moveFeedListenersRef = useRef(new Set());
 
   const subscribeToMoves = useCallback((callback) => {
     moveListenersRef.current.add(callback);
@@ -69,6 +68,12 @@ export function BluetoothProvider({ children }) {
   const subscribeToMoveComplete = useCallback((callback) => {
     moveCompleteListenersRef.current.add(callback);
     return () => moveCompleteListenersRef.current.delete(callback);
+  }, []);
+
+  // subscribeToMoveFeed: recibe { notation, timestamp, source } para el panel de diagnóstico BLE
+  const subscribeToMoveFeed = useCallback((callback) => {
+    moveFeedListenersRef.current.add(callback);
+    return () => moveFeedListenersRef.current.delete(callback);
   }, []);
 
   const subscribeToGyro = useCallback((callback) => {
@@ -86,10 +91,18 @@ export function BluetoothProvider({ children }) {
   const broadcastGyro = (data) => {
     gyroListenersRef.current.forEach(cb => cb(data));
   };
+  const broadcastMoveFeed = (notation, source) => {
+    const entry = { notation, timestamp: Date.now(), source };
+    moveFeedListenersRef.current.forEach(cb => cb(entry));
+  };
 
   // Handler para giroscopio (ESP32 / CogniMirror Custom HW)
   const handleGyroData = (event) => {
     try {
+      const now = performance.now();
+      if (now - gyroLastUpdateRef.current < 16) return; // Throttle a ~60fps
+      gyroLastUpdateRef.current = now;
+
       const b = event.target.value;
       const str = new TextDecoder().decode(b);
       // El sensor envía JSON: {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -134,25 +147,38 @@ export function BluetoothProvider({ children }) {
     setGyroOffset({ ...currentRawGyro.current });
   }, []);
 
-  // Handler para movimientos físicos del cubo
   const processValidatedMove = (moveId, subBuffer) => {
-    // DEDUPLICACIÓN POR HUELLA DIGITAL (Bit-level fingerprinting)
-    // El búfer contiene un timer/contador. Si el paquete es idéntico al anterior, 
-    // es una retransmisión de Bluetooth. Si cambia un bit, es un nuevo giro (ej. U2).
+    // 1. Filtrado de retransmisiones de red pura (mismo sequence ID)
     const fingerprint = Array.from(subBuffer).join(',');
-    if (lastPacketFingerprint.current === fingerprint) {
-      // Ignorar duplicado idéntico de red
-      return;
-    }
+    if (lastPacketFingerprint.current === fingerprint) return;
     lastPacketFingerprint.current = fingerprint;
 
-    const faces = ["B", "F", "U", "D", "R", "L"];
-    const faceName = faces[Math.floor(moveId / 2)];
-    if (faceName) {
-      const modifier = (moveId % 2 !== 0) ? "'" : "";
-      const finalMove = faceName + modifier;
+    const faceTable = ["B", "B'", "F", "F'", "U", "U'", "D", "D'", "L", "L'", "R", "R'"];
+    
+    if (moveId >= 0 && moveId < faceTable.length) {
+      const finalMove = faceTable[moveId];
+
+      // 2. Anti-Rebote Físico y Filtro de Giros de 180 grados (U2, R2)
+      // Si el usuario hace un giro físico de 180° en un solo impulso de muñeca, 
+      // el sensor enviará 2 paquetes válidos e idénticos. En juegos rítmicos y UI, 
+      // esto se percibe como un salto doble no deseado. Ignoramos GIROS IDÉNTICOS en <250ms.
+      const now = performance.now();
+      if (
+        lastPacketTimeRef.current && 
+        now - lastPacketTimeRef.current < 250 && 
+        window.lastFaceCache === finalMove // usamos el objeto window para guardar el estado del último movimiento rapido
+      ) {
+         console.warn(`[BLE] Ignorando doble pulsación física (overshoot) en ${finalMove}`);
+         return; 
+      }
+      
+      window.lastFaceCache = finalMove;
+      lastPacketTimeRef.current = now;
+
       console.log(`[⚡ SPEEDCUBE MOVE]: ${finalMove} (ID: ${moveId})`);
       broadcastMove(finalMove);
+      // Mantenemos el feed opcional agregado para los Joysticks
+      if (typeof broadcastMoveFeed === 'function') broadcastMoveFeed(finalMove, 'native');
     }
   };
 
@@ -312,6 +338,7 @@ export function BluetoothProvider({ children }) {
     batteryLevel,
     subscribeToMoves,
     subscribeToMoveComplete, // ⏱ Nueva API: TEM (Tiempo de Ejecución Motora)
+    subscribeToMoveFeed,     // 📡 Feed de diagnóstico en tiempo real
     subscribeToGyro,
     broadcastMove,
     // Calibración de latencia
