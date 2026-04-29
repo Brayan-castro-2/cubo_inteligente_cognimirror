@@ -158,3 +158,4 @@ MIT License — Ver `LICENSE.txt`
 ---
 
 *Desarrollado por el equipo **CogniMirror** como herramienta de evaluación neuropsicológica basada en Cubo de Rubik inteligente.*
+https://ko-fi.com/joicube
